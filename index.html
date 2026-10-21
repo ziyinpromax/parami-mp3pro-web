@@ -429,6 +429,25 @@ function nativeGetInfo(id){
     catch(e){ clearTimeout(to); delete infoCallbacks[cbId]; reject(e); }
   });
 }
+/* ---------- Step 3: user's own Cloudflare Worker ---------- */
+function workerBase(){ try{ return (localStorage.getItem('mp3pro_worker')||'').replace(/\/+$/,''); }catch(e){ return ''; } }
+function workerGetInfo(id){
+  return new Promise(function(resolve, reject){
+    var base=workerBase();
+    if(!base){ reject(new Error('no worker')); return; }
+    var ctl=('AbortController' in window)?new AbortController():null;
+    var to=setTimeout(function(){ if(ctl) ctl.abort(); reject(new Error('worker timeout')); }, 280000);
+    var opt={}; if(ctl) opt.signal=ctl.signal;
+    fetch(base+'/info?v='+encodeURIComponent(id), opt)
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        clearTimeout(to);
+        if(d && d.ok && d.audioUrl) resolve({ title:d.title||'', author:d.author||'', duration:d.duration||0, audioUrl:d.audioUrl, expiresAt:d.expiresAt||0, source:d.source||'worker' });
+        else reject(new Error((d&&d.error)||'worker failed'));
+      })
+      .catch(function(e){ clearTimeout(to); reject(e); });
+  });
+}
 function loaderGetInfo(id){
   return new Promise(function(resolve, reject){
     if(!(window.AndroidBridge && AndroidBridge.getLoaderInfoAsync)) { reject(new Error('no loader bridge')); return; }
@@ -534,8 +553,9 @@ async function getInfo(id, report, opts){
   var legP=legacyGetInfo(id, report).then(function(v){ return {v:v}; }, function(e){ return {e:e}; });
   var lodP=useLoader ? loaderGetInfo(id).then(function(v){ return {v:v}; }, function(e){ return {e:e}; })
                      : Promise.resolve({skip:true});
+  var wkP=workerGetInfo(id).then(function(v){ return {v:v}; }, function(e){ return {e:e}; });
   return new Promise(function(resolve, reject){
-    var done=false, pending=useLoader?3:2, natErr=null, legErr=null;
+    var done=false, pending=useLoader?4:3, natErr=null, legErr=null;
     function settle(){
       if(pending>0 || done) return;
       done=true;
@@ -545,6 +565,7 @@ async function getInfo(id, report, opts){
     natP.then(function(r){ pending--; if(r.v && !done){ done=true; if(report) report('ရပါပြီ ✓'); resolve(r.v); } else { natErr=r.e; settle(); } });
     legP.then(function(r){ pending--; if(r.v && !done){ done=true; if(report) report('ရပါပြီ ✓'); resolve(r.v); } else { legErr=r.e; settle(); } });
     lodP.then(function(r){ if(r.skip) return; pending--; if(r.v && !done){ done=true; if(report) report('MP3 server က ရပါပြီ ✓'); resolve(r.v); } else { settle(); } });
+    wkP.then(function(r){ pending--; if(r.v && !done){ done=true; if(report) report('Worker က ရပါပြီ ✓'); resolve(r.v); } else { settle(); } });
   });
 }
 async function quickMeta(id){
@@ -723,6 +744,9 @@ function viewUpload(){
     +'၂။ Link ကို အောက်မှာ paste လုပ်ပါ — <b>Video လုံးဝ မဆွဲပါ၊ Audio (MP3) သီးသန့်ပဲ</b> ယူပါတယ်၊ ကြော်ငြာ မပါဘူး<br>'
     +'၃။ <b>Home</b> ရွေးရင် အလွတ် အဖြစ် Home မှာ ပေါ်မယ်၊ <b>Folder</b> ရွေးရင် အဲဒီ Folder ထဲမှာပဲ ပေါ်မယ်</div>';
   h+='<div class="card"><div style="font-weight:700;margin-bottom:9px">🔗 YouTube Link</div>'
+    +'<div class="card" style="margin-bottom:14px"><div style="font-weight:800;margin-bottom:4px">🔧 Step 3 — Worker <span id="wkState"></span></div>'
+    +'<div class="small" style="margin-bottom:8px">Cloudflare Worker URL ထည့်ထားရင် convert + ဖွင့်တာကို Worker က လုပ်ပေးမယ် (ပိုမြန် / ပိုယုံကြည်ရ)</div>'
+    +'<div style="display:flex;gap:8px"><input type="url" id="wkUrl" placeholder="https://parami-mp3.xxx.workers.dev" style="flex:1"><button class="chipbtn" id="wkSave">သိမ်း</button></div></div>'
     +'<input type="url" id="ytInput" placeholder="https://youtu.be/... သို့မဟုတ် youtube.com/watch?v=...">'
     +'<div class="preview" id="pvBox"><div class="pv"><img id="pvThumb" alt=""><div style="flex:1;min-width:0">'
     +'<div class="ok">✓ Link မှန်ပါတယ်</div><div id="pvTitle" style="font-weight:700;font-size:14.5px;margin-top:3px;line-height:1.4"></div>'
@@ -799,6 +823,15 @@ var pvTimer=null;
 function bindUpload(){
   if(view!=='upload') return;
   syncDestUI();
+  var wkInp=$('wkUrl'), wkSt=$('wkState');
+  if(wkInp){ wkInp.value=workerBase(); if(wkSt) wkSt.textContent=workerBase()?'✅ ချိတ်ထားတယ်':'(မထည့်ရသေး)'; }
+  var wkBtn=$('wkSave');
+  if(wkBtn) wkBtn.addEventListener('click', function(){
+    var v=(wkInp.value||'').trim().replace(/\/+$/,'');
+    try{ localStorage.setItem('mp3pro_worker', v); }catch(e){}
+    if(wkSt) wkSt.textContent=v?'✅ ချိတ်ထားတယ်':'(မထည့်ရသေး)';
+    toast(v?'Worker URL သိမ်းပြီးပါပြီ ✓':'Worker URL ဖျက်လိုက်ပါပြီ');
+  });
   var inp=$('ytInput');
   if(inp){
     inp.addEventListener('input', function(){
