@@ -1,9 +1,15 @@
 // ============================================================
-//  Parami Mp3 Pro — Cloudflare Worker backend (Step 3)
+//  Parami Mp3 Pro — Cloudflare Worker backend (Step 3, v2)
 //  Endpoints:
-//    GET /                -> health text
-//    GET /info?v=<id>     -> { ok, title, author, duration, audioUrl, expiresAt, source }
-//    GET /stream?u=<b64>  -> proxied audio (Range supported for YouTube streams)
+//    GET /            -> health text
+//    GET /info?v=<id> -> { ok, title, author, duration, audioUrl, expiresAt, source }
+//    GET /play?v=<id> -> the audio stream itself (seekable)
+//    GET /stream?u=.. -> legacy proxy (kept for old links)
+//
+//  v2 note: YouTube stream URLs are bound to the IP that asked for
+//  them, and a Worker's egress IP can change between requests — so
+//  /play mints a fresh stream URL *inside the same request* that
+//  fetches it. The IP always matches, and Range/seek works.
 // ============================================================
 
 const CORS = {
@@ -61,51 +67,66 @@ function pickAudio(formats) {
   return audios[0];
 }
 
-/* ---------- Engine 1: YouTube InnerTube (direct, fast) ---------- */
-async function innertubeInfo(id, origin) {
+/* Ask the InnerTube player API (with this request's own egress IP). */
+async function playerApi(id, c) {
+  const r = await fetch('https://www.youtube.com/youtubei/v1/player?key=' + c.key + '&prettyPrint=false', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'User-Agent': c.ua,
+      'X-Youtube-Client-Name': c.num,
+      'X-Youtube-Client-Version': c.ver,
+    },
+    body: JSON.stringify({
+      context: { client: c.client },
+      videoId: id,
+      playbackContext: { contentPlaybackContext: { signatureTimestamp: 20000 } },
+      racyCheckOk: true,
+      contentCheckOk: true,
+    }),
+  });
+  if (!r.ok) return null;
+  const d = await r.json();
+  const status = d.playabilityStatus && d.playabilityStatus.status;
+  if (status && status !== 'OK') return null;
+  const f = pickAudio((d.streamingData && d.streamingData.adaptiveFormats) || []);
+  if (!f) return null;
+  return { data: d, format: f };
+}
+
+/* ---------- /info : metadata only; the playable URL is /play ---------- */
+async function handleInfo(id, origin) {
   for (const c of CLIENTS) {
     try {
-      const r = await fetch('https://www.youtube.com/youtubei/v1/player?key=' + c.key + '&prettyPrint=false', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'User-Agent': c.ua,
-          'X-Youtube-Client-Name': c.num,
-          'X-Youtube-Client-Version': c.ver,
-        },
-        body: JSON.stringify({
-          context: { client: c.client },
-          videoId: id,
-          playbackContext: { contentPlaybackContext: { signatureTimestamp: 20000 } },
-          racyCheckOk: true,
-          contentCheckOk: true,
-        }),
-      });
-      if (!r.ok) continue;
-      const d = await r.json();
-      const status = d.playabilityStatus && d.playabilityStatus.status;
-      if (status && status !== 'OK') continue;
-      const f = pickAudio((d.streamingData && d.streamingData.adaptiveFormats) || []);
-      if (!f) continue;
-      let exp = 0;
-      try { exp = parseInt(new URL(f.url).searchParams.get('expire') || '0', 10) * 1000; } catch (e) {}
-      const vd = d.videoDetails || {};
-      return {
+      const res = await playerApi(id, c);
+      if (!res) continue;
+      const vd = res.data.videoDetails || {};
+      return json({
         ok: true,
         title: vd.title || '',
         author: vd.author || '',
         duration: parseInt(vd.lengthSeconds || '0', 10) || 0,
-        audioUrl: origin + '/stream?u=' + b64urlEncode(f.url) + '&c=' + c.name,
-        expiresAt: exp || Date.now() + 3600000,
+        audioUrl: origin + '/play?v=' + encodeURIComponent(id),
+        expiresAt: Date.now() + 6 * 3600000,
         source: 'worker-' + c.name.toLowerCase(),
-      };
-    } catch (e) { /* try the next client */ }
+      });
+    } catch (e) { /* next client */ }
   }
-  return null;
+  // Metadata via the converter as a last resort (title only).
+  try {
+    const l = await loaderConvert(id);
+    return json({
+      ok: true, title: l.title, author: '', duration: 0,
+      audioUrl: origin + '/play?v=' + encodeURIComponent(id),
+      expiresAt: Date.now() + 6 * 3600000, source: 'worker-loader',
+    });
+  } catch (e) {
+    return json({ ok: false, error: 'all engines failed: ' + (e && e.message ? e.message : e) });
+  }
 }
 
-/* ---------- Engine 2: loader.to converter (server-side MP3) ---------- */
-async function loaderInfo(id, origin) {
+/* ---------- loader.to conversion (returns a savenow URL) ---------- */
+async function loaderConvert(id) {
   let cookie = '';
   try {
     const home = await fetch('https://loader.to/', { headers: { 'User-Agent': BROWSER_UA } });
@@ -115,8 +136,7 @@ async function loaderInfo(id, origin) {
   const H = { 'User-Agent': BROWSER_UA, 'Referer': 'https://loader.to/', 'X-Requested-With': 'XMLHttpRequest' };
   if (cookie) H['Cookie'] = cookie;
   const watch = 'https://www.youtube.com/watch?v=' + id;
-  const startResp = await fetch('https://loader.to/ajax/download.php?format=mp3&url=' + encodeURIComponent(watch), { headers: H });
-  const start = await startResp.json();
+  const start = await (await fetch('https://loader.to/ajax/download.php?format=mp3&url=' + encodeURIComponent(watch), { headers: H })).json();
   if (!start || !start.success || !start.progress_url) throw new Error('loader start rejected');
   const title = start.title || (start.info && start.info.title) || 'YouTube Audio';
   const deadline = Date.now() + 240000;
@@ -125,23 +145,48 @@ async function loaderInfo(id, origin) {
     const pd = await (await fetch(start.progress_url, { headers: H })).json();
     const ptxt = ((pd && pd.text) || '') + ' ' + ((pd && pd.message) || '');
     if (/unavailable|removed/i.test(ptxt)) throw new Error('converter cannot fetch this video');
-    if (pd && pd.download_url) {
-      return {
-        ok: true,
-        title: title,
-        author: '',
-        duration: 0,
-        audioUrl: origin + '/stream?u=' + b64urlEncode(pd.download_url) + '&c=loader',
-        expiresAt: Date.now() + 30 * 60000,
-        source: 'worker-loader',
-      };
-    }
+    if (pd && pd.download_url) return { title: title, downloadUrl: pd.download_url };
     if (pd && pd.success === 1 && (pd.progress || 0) >= 1000) throw new Error('loader finished without url');
   }
   throw new Error('loader timeout');
 }
 
-/* ---------- /stream : same-IP proxy so the stream URL stays valid ---------- */
+function streamResponse(up) {
+  const h = new Headers(CORS);
+  for (const k of ['content-type', 'content-length', 'content-range', 'accept-ranges']) {
+    const v = up.headers.get(k);
+    if (v) h.set(k, v);
+  }
+  if (!h.has('accept-ranges')) h.set('accept-ranges', 'bytes');
+  return new Response(up.body, { status: up.status, headers: h });
+}
+
+/* ---------- /play : mint + fetch in ONE request (IP always matches) ---------- */
+async function handlePlay(request, id) {
+  const range = request.headers.get('range');
+  for (const c of CLIENTS) {
+    try {
+      const res = await playerApi(id, c);
+      if (!res) continue;
+      const headers = { 'User-Agent': c.ua };
+      if (range) headers['Range'] = range;
+      const up = await fetch(res.format.url, { headers: headers, redirect: 'follow' });
+      if (up.status === 200 || up.status === 206) return streamResponse(up);
+      // 403 etc. -> fall through to the next client
+    } catch (e) { /* next client */ }
+  }
+  // Last resort: the MP3 converter (no IP binding on its links; slower).
+  try {
+    const l = await loaderConvert(id);
+    const headers = { 'User-Agent': BROWSER_UA };
+    if (range) headers['Range'] = range;
+    const up = await fetch(l.downloadUrl, { headers: headers, redirect: 'follow' });
+    if (up.status === 200 || up.status === 206) return streamResponse(up);
+  } catch (e) {}
+  return new Response('stream unavailable', { status: 502, headers: CORS });
+}
+
+/* ---------- /stream : legacy proxy for URLs stored by v1 ---------- */
 async function handleStream(request, url) {
   const raw = url.searchParams.get('u');
   if (!raw) return new Response('missing u', { status: 400, headers: CORS });
@@ -153,12 +198,7 @@ async function handleStream(request, url) {
   const range = request.headers.get('range');
   if (range) headers['Range'] = range;
   const up = await fetch(target, { headers: headers, redirect: 'follow' });
-  const h = new Headers(CORS);
-  for (const k of ['content-type', 'content-length', 'content-range', 'accept-ranges']) {
-    const v = up.headers.get(k);
-    if (v) h.set(k, v);
-  }
-  return new Response(up.body, { status: up.status, headers: h });
+  return streamResponse(up);
 }
 
 export default {
@@ -166,21 +206,17 @@ export default {
     const url = new URL(request.url);
     if (request.method === 'OPTIONS') return new Response(null, { headers: CORS });
     try {
+      const id = url.searchParams.get('v') || '';
       if (url.pathname === '/info') {
-        const id = url.searchParams.get('v') || '';
         if (!/^[A-Za-z0-9_-]{6,20}$/.test(id)) return json({ ok: false, error: 'bad video id' }, 400);
-        const origin = url.origin;
-        const direct = await innertubeInfo(id, origin);
-        if (direct) return json(direct);
-        try {
-          const viaLoader = await loaderInfo(id, origin);
-          return json(viaLoader);
-        } catch (e) {
-          return json({ ok: false, error: 'all engines failed: ' + (e && e.message ? e.message : e) });
-        }
+        return await handleInfo(id, url.origin);
+      }
+      if (url.pathname === '/play') {
+        if (!/^[A-Za-z0-9_-]{6,20}$/.test(id)) return new Response('bad video id', { status: 400, headers: CORS });
+        return await handlePlay(request, id);
       }
       if (url.pathname === '/stream') return await handleStream(request, url);
-      return new Response('Parami Mp3 Pro Worker OK', { headers: Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, CORS) });
+      return new Response('Parami Mp3 Pro Worker OK v2', { headers: Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, CORS) });
     } catch (e) {
       return json({ ok: false, error: String(e && e.message ? e.message : e) }, 500);
     }
