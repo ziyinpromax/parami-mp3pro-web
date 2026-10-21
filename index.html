@@ -1,0 +1,1327 @@
+<!DOCTYPE html>
+<html lang="my">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Parami Mp3 Pro</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+:root{
+  --bg:#04060f; --bg2:#0a1030; --card:rgba(255,255,255,.055); --card2:rgba(255,255,255,.09);
+  --line:rgba(0,229,255,.16); --cyan:#00e5ff; --violet:#9664ff; --pink:#ff40aa;
+  --txt:#eef2ff; --dim:#9aa7c7; --ok:#2ee6a8; --bad:#ff5d7a;
+  --grad:linear-gradient(120deg,var(--cyan),var(--violet) 60%,var(--pink));
+}
+html,body{height:100%}
+body{
+  font-family:"Segoe UI",Roboto,"Myanmar Text",sans-serif;color:var(--txt);
+  background:
+    radial-gradient(700px 380px at 85% -60px,rgba(150,100,255,.28),transparent 60%),
+    radial-gradient(600px 340px at -10% 30%,rgba(0,229,255,.14),transparent 55%),
+    linear-gradient(180deg,var(--bg2),var(--bg) 55%);
+  overflow-x:hidden;
+}
+#app{max-width:540px;margin:0 auto;padding:0 12px 168px;min-height:100%}
+/* ---------- header ---------- */
+.appbar{display:flex;align-items:center;gap:10px;padding:12px 2px 4px}
+.logo{width:38px;height:38px;border-radius:11px;background:var(--grad);display:flex;align-items:center;justify-content:center;
+  font-size:20px;box-shadow:0 4px 16px rgba(0,229,255,.3);flex:none}
+.appbar h1{font-size:17px;letter-spacing:.2px;line-height:1.15;white-space:nowrap}
+.appbar h1 b{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+.appbar .sub{font-size:11px;color:var(--dim)}
+.appbar .sp{flex:1}
+.chip{font-size:10.5px;color:var(--cyan);border:1px solid var(--line);background:rgba(0,229,255,.07);
+  padding:4px 8px;border-radius:99px;white-space:nowrap}
+/* ---------- generic ---------- */
+h2.sec{font-size:15px;margin:14px 2px 8px;display:flex;align-items:center;gap:8px}
+h2.sec .sp{flex:1}
+.btn{background:var(--grad);color:#fff;border:0;border-radius:13px;padding:12px 16px;font-size:14.5px;font-weight:700;
+  box-shadow:0 8px 24px rgba(124,77,255,.35);cursor:pointer;width:100%}
+.btn:active{transform:scale(.98)}
+.btn.ghost{background:var(--card2);box-shadow:none;border:1px solid var(--line);color:var(--txt)}
+.btn.small{width:auto;padding:7px 12px;font-size:12.5px;border-radius:10px}
+.btn:disabled{opacity:.45;box-shadow:none}
+input[type=text],input[type=url],input[type=password]{width:100%;background:rgba(0,0,0,.35);border:1.5px solid var(--line);border-radius:13px;
+  padding:11px 13px;color:var(--txt);font-size:14.5px;outline:none}
+input:focus{border-color:var(--cyan);box-shadow:0 0 0 3px rgba(0,229,255,.15)}
+.card{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.07);border-radius:16px;padding:12px}
+.empty{text-align:center;color:var(--dim);padding:26px 16px;font-size:13.5px;line-height:1.85}
+.empty .big{font-size:36px;display:block;margin-bottom:4px}
+.small{font-size:12px;color:var(--dim)}
+/* ---------- track rows ---------- */
+.track{display:flex;align-items:center;gap:10px;padding:8px;border-radius:14px;background:var(--card);
+  border:1px solid rgba(255,255,255,.06);margin-bottom:7px;cursor:pointer;position:relative;overflow:hidden}
+.track:active{background:var(--card2)}
+.track.playing{border-color:rgba(0,229,255,.55);background:rgba(0,229,255,.07)}
+.track .num{flex:none;min-width:22px;text-align:center;font-size:13px;font-weight:800;color:var(--cyan)}
+.track.playing .num{color:var(--pink)}
+.track img{width:46px;height:46px;border-radius:10px;object-fit:cover;flex:none;background:#111}
+.track .tt{flex:1;min-width:0}
+.track .t1{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.track .t2{font-size:11.5px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.track .dur{font-size:11.5px;color:var(--dim);flex:none}
+.track .menu{flex:none;width:32px;height:36px;display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--dim);border-radius:10px}
+.badge{display:inline-block;font-size:10.5px;padding:2px 8px;border-radius:99px;background:rgba(150,100,255,.18);
+  color:#cdb4ff;border:1px solid rgba(150,100,255,.35);margin-left:6px;vertical-align:2px}
+.eq{display:none;gap:2.5px;align-items:flex-end;height:16px;flex:none}
+.eq i{width:3px;background:var(--cyan);border-radius:2px;animation:eq 0.9s ease-in-out infinite}
+.eq i:nth-child(2){animation-delay:.25s}.eq i:nth-child(3){animation-delay:.5s}
+@keyframes eq{0%,100%{height:5px}50%{height:16px}}
+.track.playing .eq{display:flex}
+/* ---------- folders ---------- */
+.fgrid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.folder{border-radius:16px;padding:12px;cursor:pointer;border:1px solid rgba(255,255,255,.08);position:relative;overflow:hidden;min-height:94px}
+.folder:active{transform:scale(.98)}
+.folder .fic{font-size:23px}
+.folder .fnum{position:absolute;left:10px;bottom:8px;font-size:11px;font-weight:800;color:rgba(255,255,255,.65)}
+.folder .fn{font-size:14.5px;font-weight:700;margin-top:6px;line-height:1.3}
+.folder .fc{font-size:11.5px;color:rgba(255,255,255,.75);margin-top:2px}
+.folder .fm{position:absolute;top:6px;right:6px;width:30px;height:30px;display:flex;align-items:center;justify-content:center;
+  background:rgba(0,0,0,.28);border-radius:9px;font-size:16px}
+.folder.newf{background:var(--card);border:1.5px dashed rgba(0,229,255,.4);display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--cyan)}
+.folder.newf .fic{font-size:28px}
+.fstrip{display:flex;gap:9px;overflow-x:auto;padding:2px 2px 6px;scrollbar-width:none}
+.fstrip::-webkit-scrollbar{display:none}
+.fcard{flex:none;width:142px;border-radius:15px;padding:11px;cursor:pointer;border:1px solid rgba(255,255,255,.09);position:relative}
+.fcard .fic{font-size:20px}
+.fcard .fn{font-size:13.5px;font-weight:700;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fcard .fc{font-size:11px;color:rgba(255,255,255,.75)}
+.secline{display:flex;align-items:center;gap:8px;margin:14px 2px 8px}
+.secline h2{font-size:15px}
+.secline .ln{flex:1;height:1px;background:linear-gradient(90deg,var(--line),transparent)}
+/* ---------- upload ---------- */
+.hint{font-size:12.5px;line-height:1.9;color:var(--dim);margin-bottom:11px}
+.hint b{color:var(--txt)}
+.preview{display:none;margin-top:12px}
+.preview.show{display:block}
+.preview .pv{display:flex;gap:12px;align-items:center}
+.preview img{width:96px;height:68px;object-fit:cover;border-radius:12px;flex:none}
+.preview .ok{color:var(--ok);font-size:12.5px;font-weight:700}
+.destrow{display:flex;flex-wrap:wrap;gap:8px;margin-top:9px}
+.dest{padding:9px 13px;border-radius:99px;border:1.5px solid var(--line);background:rgba(0,0,0,.3);font-size:13px;cursor:pointer;
+  max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dest.sel{background:var(--grad);border-color:transparent;color:#fff;font-weight:700;box-shadow:0 6px 18px rgba(124,77,255,.35)}
+.prog{display:none;margin-top:14px}
+.prog.show{display:block}
+.prog .line{font-size:13.5px;color:var(--dim);padding:5px 2px;display:flex;gap:9px;align-items:center}
+.prog .line.done{color:var(--ok)}
+.prog .line.act{color:var(--txt)}
+.spin{width:15px;height:15px;border:2.5px solid rgba(0,229,255,.25);border-top-color:var(--cyan);border-radius:50%;animation:sp .7s linear infinite;flex:none}
+@keyframes sp{to{transform:rotate(360deg)}}
+.errbox{display:none;margin-top:12px;background:rgba(255,93,122,.1);border:1px solid rgba(255,93,122,.4);color:#ffb3c0;
+  border-radius:14px;padding:12px 14px;font-size:13.5px;line-height:1.6}
+.errbox.show{display:block}
+.donebox{display:none;margin-top:14px;text-align:center;padding:20px 14px}
+.donebox.show{display:block}
+.donebox .big{font-size:46px}
+/* ---------- tab bar ---------- */
+#tabbar{position:fixed;left:0;right:0;bottom:0;z-index:50;display:flex;justify-content:center;pointer-events:none}
+#tabbar .inner{pointer-events:auto;width:100%;max-width:540px;margin:0 10px calc(10px + env(safe-area-inset-bottom));
+  background:rgba(10,14,34,.96);border:1px solid var(--line);border-radius:22px;
+  display:flex;align-items:center;justify-content:space-around;padding:8px 6px;box-shadow:0 12px 34px rgba(0,0,0,.5)}
+.tab{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:11px;color:var(--dim);padding:6px 14px;border-radius:14px;cursor:pointer;border:0;background:none}
+.tab .ic{font-size:21px}
+.tab.on{color:var(--cyan)}
+.fab{width:58px;height:58px;border-radius:50%;background:var(--grad);border:0;color:#fff;font-size:29px;cursor:pointer;
+  margin-top:-30px;box-shadow:0 10px 26px rgba(124,77,255,.5);display:flex;align-items:center;justify-content:center}
+.fab:active{transform:scale(.94)}
+.fabwrap{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:11px;color:var(--dim)}
+/* ---------- mini player ---------- */
+#mini{position:fixed;left:0;right:0;bottom:96px;z-index:49;display:none;justify-content:center;pointer-events:none}
+#mini.show{display:flex}
+#mini .inner{pointer-events:auto;width:100%;max-width:540px;margin:0 10px;background:rgba(14,18,44,.95);
+  border:1px solid rgba(0,229,255,.35);border-radius:18px;padding:9px 12px;display:flex;align-items:center;gap:11px;
+  box-shadow:0 10px 30px rgba(0,0,0,.55);cursor:pointer;position:relative;overflow:hidden}
+#mini img{width:46px;height:46px;border-radius:11px;object-fit:cover;flex:none}
+#mini .mt{flex:1;min-width:0}
+#mini .mt .a{font-size:13.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#mini .mt .b{font-size:11.5px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#mini .mb{width:42px;height:42px;border-radius:50%;background:var(--grad);border:0;color:#fff;font-size:17px;flex:none;cursor:pointer}
+#mini .nx{width:38px;height:38px;border-radius:50%;background:var(--card2);border:0;color:var(--txt);font-size:15px;flex:none;cursor:pointer}
+#mini .bar{position:absolute;left:0;top:0;height:3px;background:var(--grad);width:0%}
+/* ---------- full player ---------- */
+#player{position:fixed;inset:0;z-index:80;background:linear-gradient(180deg,#0d1440,#04060f 70%);
+  transform:translateY(102%);transition:transform .32s ease;display:flex;flex-direction:column;align-items:center;
+  padding:calc(16px + env(safe-area-inset-top)) 22px calc(20px + env(safe-area-inset-bottom));max-width:540px;margin:0 auto}
+#player.open{transform:translateY(0)}
+#player .down{align-self:flex-start;background:var(--card2);border:1px solid var(--line);color:var(--txt);
+  width:40px;height:40px;border-radius:12px;font-size:18px;cursor:pointer}
+#player .disc{margin-top:14px;width:min(66vw,290px);height:min(66vw,290px);border-radius:26px;object-fit:cover;
+  box-shadow:0 24px 60px rgba(0,0,0,.6),0 0 0 1px rgba(0,229,255,.25)}
+#player .pt{margin-top:22px;font-size:18.5px;font-weight:800;text-align:center;line-height:1.4}
+#player .pa{margin-top:5px;font-size:13.5px;color:var(--dim);text-align:center}
+#player input[type=range]{width:100%;margin-top:24px;accent-color:var(--cyan);height:28px}
+#player .times{display:flex;justify-content:space-between;width:100%;font-size:12px;color:var(--dim);margin-top:-4px}
+#player .ctrl{display:flex;align-items:center;gap:14px;margin-top:14px}
+#player .cbtn{width:52px;height:52px;border-radius:50%;background:var(--card2);border:1px solid var(--line);color:var(--txt);font-size:19px;cursor:pointer}
+#player .cbtn.on{color:var(--cyan);border-color:var(--cyan)}
+#player .play{width:74px;height:74px;font-size:29px;background:var(--grad);border:0;color:#fff;box-shadow:0 14px 34px rgba(124,77,255,.5)}
+#player .row2{display:flex;gap:10px;margin-top:20px;width:100%}
+#player .row2 .btn{flex:1}
+/* ---------- sheet / toast ---------- */
+#sheetWrap{position:fixed;inset:0;z-index:90;background:rgba(2,4,12,.66);display:none;align-items:flex-end;justify-content:center}
+#sheetWrap.show{display:flex}
+#sheet{width:100%;max-width:540px;background:#0c1233;border:1px solid var(--line);border-bottom:0;border-radius:24px 24px 0 0;
+  padding:16px 16px calc(18px + env(safe-area-inset-bottom));max-height:78vh;overflow-y:auto}
+#sheet h3{font-size:15.5px;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.shitem{display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:none;border:0;color:var(--txt);
+  font-size:15px;padding:14px 8px;border-bottom:1px solid rgba(255,255,255,.06);cursor:pointer}
+.shitem:last-child{border-bottom:0}
+.shitem.danger{color:var(--bad)}
+#toast{position:fixed;left:50%;transform:translateX(-50%) translateY(20px);bottom:180px;z-index:120;background:#131b47;
+  border:1px solid var(--line);color:var(--txt);padding:11px 18px;border-radius:99px;font-size:13.5px;opacity:0;
+  transition:.25s;pointer-events:none;max-width:88vw;text-align:center;box-shadow:0 12px 30px rgba(0,0,0,.5)}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.backbtn{background:var(--card2);border:1px solid var(--line);color:var(--txt);border-radius:11px;padding:8px 13px;font-size:13.5px;cursor:pointer}
+.searchrow{display:flex;gap:9px;margin-top:6px}
+.banner{width:100%;height:102px;object-fit:cover;object-position:center 38%;border-radius:16px;display:block;margin-top:8px;
+  border:1px solid var(--line);box-shadow:0 10px 26px rgba(0,0,0,.4)}
+img.logo{object-fit:cover;padding:0}
+.lockwrap{padding-top:26px}
+.lockcard{text-align:center;padding:26px 20px}
+.lockcard img.lg{width:104px;height:104px;border-radius:24px;object-fit:cover;box-shadow:0 12px 30px rgba(0,229,255,.25);border:1px solid var(--line)}
+.lockcard h2{font-size:18px;margin:16px 0 6px}
+.lockcard input{text-align:center;font-size:19px;letter-spacing:4px;margin-top:16px}
+.pwerr{display:none;color:var(--bad);font-size:13.5px;margin-top:10px}
+.pwerr.show{display:block}
+</style>
+</head>
+<body>
+<div id="crashBar" style="display:none;background:#5b1030;color:#ffd7e2;border-bottom:1px solid #ff5d7a;padding:10px 12px;font-size:12px;white-space:pre-wrap;word-break:break-all;max-height:150px;overflow:auto"></div>
+<div id="app">
+  <div class="appbar">
+    <img class="logo" src="icon_sq.jpg" alt="">
+    <div>
+      <h1>Parami <b>Mp3 Pro</b></h1>
+      <div class="sub">ကြော်ငြာမပါ • YouTube → MP3</div>
+    </div>
+    <div class="sp"></div>
+    <div class="chip" id="statChip">သီချင်း ၀ ပုဒ်</div>
+  </div>
+  <div id="content"></div>
+</div>
+
+<div id="tabbar"><div class="inner">
+  <button class="tab on" data-view="home"><span class="ic">🏠</span>ပင်မ</button>
+  <div class="fabwrap"><button class="fab" id="fabUpload">＋</button><span>တင်ရန်</span></div>
+  <button class="tab" data-view="folders"><span class="ic">📁</span>Folder များ</button>
+</div></div>
+
+<div id="mini"><div class="inner" id="miniInner">
+  <div class="bar" id="miniBar"></div>
+  <img id="miniThumb" alt="">
+  <div class="mt"><div class="a" id="miniTitle">—</div><div class="b" id="miniArtist">—</div></div>
+  <button class="nx" id="miniNext">⏭</button>
+  <button class="mb" id="miniPlay">▶</button>
+</div></div>
+
+<div id="player">
+  <button class="down" id="pDown">⌄</button>
+  <img class="disc" id="pThumb" alt="">
+  <div class="pt" id="pTitle">—</div>
+  <div class="pa" id="pArtist">—</div>
+  <div class="pa" id="pDiag" style="font-size:11px;margin-top:3px;opacity:.75"></div>
+  <input type="range" id="pSeek" min="0" max="1000" value="0">
+  <div class="times"><span id="pCur">0:00</span><span id="pDur">0:00</span></div>
+  <div class="ctrl">
+    <button class="cbtn" id="pShuffle">🔀</button>
+    <button class="cbtn" id="pPrev">⏮</button>
+    <button class="cbtn play" id="pPlay">▶</button>
+    <button class="cbtn" id="pNext">⏭</button>
+    <button class="cbtn" id="pRepeat">🔁</button>
+  </div>
+  <div class="row2">
+    <button class="btn ghost" id="pDownload">⬇ MP3 ဒေါင်းရန်</button>
+    <button class="btn ghost" id="pMove">📁 Folder ရွှေ့ရန်</button>
+  </div>
+</div>
+
+<div id="sheetWrap"><div id="sheet"></div></div>
+<div id="toast"></div>
+<audio id="audio" preload="auto"></audio>
+<input type="file" id="fileInput" accept="audio/*" multiple hidden>
+
+<script>
+/* ===== WEB MODE (no Android bridge) =====
+   The same page runs as a plain website: native-only features (foreground
+   service player, localhost cache proxy, MediaStore backup, GitHub owner
+   publishing) switch off automatically; conversion uses the in-page
+   Invidious/Piped engines and playback is the browser's own <audio>. */
+if(!window.AndroidBridge){
+  window.__WEB__=true;
+  window.AndroidBridge={
+    getInfoAsync:function(id, cbId){ setTimeout(function(){ if(window.__onInfoResult) window.__onInfoResult(cbId, {ok:false, error:'web mode'}); }, 10); },
+    getLoaderInfoAsync:function(id, cbId){ setTimeout(function(){ if(window.__onInfoResult) window.__onInfoResult(cbId, {ok:false, error:'web mode'}); }, 10); },
+    proxyUrlFor:function(id, url){ return url; },
+    cacheState:function(id){ return '{"done":true}'; },
+    warmCache:function(id, url){},
+    download:function(url, name){ try{ window.open(url, '_blank'); }catch(e){} },
+    toast:function(msg){}
+  };
+  document.addEventListener('DOMContentLoaded', function(){
+    try{
+      var au=document.getElementById('audio');
+      if(au && 'mediaSession' in navigator){
+        au.addEventListener('play', function(){
+          try{
+            var t=window.current;
+            navigator.mediaSession.metadata=new MediaMetadata({
+              title:(t&&t.title)||'Parami Mp3 Pro',
+              artist:(t&&t.author)||'',
+              artwork:[{src:'logo.jpg', sizes:'512x512', type:'image/jpeg'}]
+            });
+          }catch(e){}
+        });
+        navigator.mediaSession.setActionHandler('previoustrack', function(){ var b=document.getElementById('pPrev'); if(b) b.click(); });
+        navigator.mediaSession.setActionHandler('nexttrack', function(){ var b=document.getElementById('pNext'); if(b) b.click(); });
+        navigator.mediaSession.setActionHandler('play', function(){ au.play(); });
+        navigator.mediaSession.setActionHandler('pause', function(){ au.pause(); });
+      }
+    }catch(e){}
+  });
+}
+</script>
+<script>
+/* ==CORE== */
+function parseVideoId(input){
+  if(!input) return null;
+  var s = String(input).trim();
+  if(/^[A-Za-z0-9_-]{11}$/.test(s)) return s;
+  var m = s.match(/(?:youtube\.com\/(?:watch\?[^#\s]*v=|shorts\/|embed\/|live\/|v\/)|youtu\.be\/|music\.youtube\.com\/watch\?[^#\s]*v=)([A-Za-z0-9_-]{11})/);
+  if(m) return m[1];
+  m = s.match(/([A-Za-z0-9_-]{11})(?:[?&#]|$)/);
+  return m ? m[1] : null;
+}
+function parseExpire(url){
+  try{ var e = new URL(url).searchParams.get('expire'); return e ? parseInt(e,10)*1000 : 0; }catch(_){ return 0; }
+}
+function fmtTime(sec){
+  sec = Math.max(0, Math.floor(sec||0));
+  var h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60), s = sec%60;
+  var mm = (h>0 && m<10) ? '0'+m : ''+m;
+  return (h>0 ? h+':' : '') + mm + ':' + (s<10?'0':'') + s;
+}
+function pickAudio(formats){
+  if(!formats || !formats.length) return null;
+  var auds = formats.filter(function(f){ return f && f.url && (f.type||'').indexOf('audio')===0; });
+  if(!auds.length) return null;
+  var mp4 = auds.filter(function(f){ return (f.type||'').indexOf('mp4')>=0 || f.container==='m4a'; });
+  var pool = mp4.length ? mp4 : auds;
+  pool.sort(function(a,b){ return (b.bitrate||0)-(a.bitrate||0); });
+  // prefer the ~128k mp4 stream (top mp4 is normally 128-130k); cap: if something absurdly high, still fine
+  return pool[0];
+}
+function homeTracks(tracks){ return tracks.filter(function(t){ return !t.folderId; }); }
+function folderTracks(tracks, fid){ return tracks.filter(function(t){ return t.folderId===fid; }); }
+var MY_DIGITS='၀၁၂၃၄၅၆၇၈၉';
+function myNum(n){ return String(n).replace(/\d/g, function(d){ return MY_DIGITS[parseInt(d,10)]; }); }
+function verifyPw(input){
+  var parts=['29','58','02'];
+  return String(input==null?'':input).trim()===parts.join('');
+}
+function sanitizeFilename(name){
+  var s = String(name||'track').replace(/[\\/:*?"<>|#]/g,'_').replace(/\s+/g,' ').trim();
+  if(s.length>80) s = s.slice(0,80);
+  return s || 'track';
+}
+/* ==/CORE== */
+</script>
+<script>
+/* =================== STATE =================== */
+var LS_KEY='parami_mp3pro_v1';
+var state={folders:[],tracks:[]};
+try{ var raw=localStorage.getItem(LS_KEY); if(raw){ var p=JSON.parse(raw); if(p&&p.tracks) state=p; } }catch(e){}
+var restoredFromBackup=0;
+try{
+  if(!state.tracks.length && window.AndroidBridge && AndroidBridge.loadBackup){
+    var bk=AndroidBridge.loadBackup();
+    if(bk){ var rs=JSON.parse(bk); if(rs && rs.tracks && rs.tracks.length){
+      state=rs; restoredFromBackup=rs.tracks.length;
+      try{ localStorage.setItem(LS_KEY, bk); }catch(e){}
+    } }
+  }
+}catch(e){}
+var GH_LIB_URL='https://raw.githubusercontent.com/ziyinpromax/parami-mp3pro-library/main/library.json';
+var sharedLib={folders:[],tracks:[]};
+var sharedAt=0;
+function allFolders(){ var out=state.folders.slice(); var ids={}; out.forEach(function(f){ids[f.id]=1;}); sharedLib.folders.forEach(function(f){ if(!ids[f.id]) out.push(f); }); return out; }
+function allTracks(){ var out=state.tracks.slice(); var ids={}; out.forEach(function(t){ids[t.id]=1;}); sharedLib.tracks.forEach(function(t){ if(!ids[t.id]) out.push(t); }); return out; }
+function ownTrack(id){ return state.tracks.find(function(t){return t.id===id;})||null; }
+function isOwner(){ try{ return localStorage.getItem('mp3pro_owner')==='1'; }catch(e){ return false; } }
+function fetchShared(force){
+  var now=Date.now(); if(!force && now-sharedAt<60000) return; sharedAt=now;
+  fetch(GH_LIB_URL+'?t='+now).then(function(r){ return r.ok?r.json():null; }).then(function(j){
+    if(!j) return;
+    sharedLib={ folders:(j.folders||[]), tracks:(j.tracks||[]) };
+    sharedLib.folders.forEach(function(f){ f.shared=true; });
+    sharedLib.tracks.forEach(function(t){ t.shared=true; });
+    if(view==='home'||view==='folders'||view==='folder') render();
+  }).catch(function(){});
+}
+function buildSharedPayload(){
+  var tracks=state.tracks.filter(function(t){ return !t.local && t.videoId; }).map(function(t){
+    return {id:t.id, videoId:t.videoId, title:t.title, author:t.author||'', thumb:t.thumb||'', duration:t.duration||0, folderId:t.folderId||null, kind:t.kind||'', url:t.url||'', urlAt:t.urlAt||0, source:t.source||'', addedAt:t.addedAt||0};
+  });
+  var folders=state.folders.map(function(f){ return {id:f.id, name:f.name}; });
+  return JSON.stringify({version:1, updatedAt:Date.now(), folders:folders, tracks:tracks});
+}
+var pubTimer=null, pubBusy=false;
+function queuePublish(){
+  if(!isOwner() || !(window.AndroidBridge && AndroidBridge.ghPublishLibrary)) return;
+  clearTimeout(pubTimer);
+  pubTimer=setTimeout(function(){
+    if(pubBusy){ queuePublish(); return; }
+    pubBusy=true;
+    try{ AndroidBridge.ghPublishLibrary(buildSharedPayload(), 'p'+Date.now()); }
+    catch(e){ pubBusy=false; }
+  }, 2500);
+}
+window.__onGhPublish=function(ok){ pubBusy=false; };
+function save(){ try{ localStorage.setItem(LS_KEY, JSON.stringify(state)); }catch(e){} renderStats(); queueBackup(); queuePublish(); }
+var bkTimer=null;
+function queueBackup(){
+  if(!(window.AndroidBridge && AndroidBridge.saveBackup)) return;
+  clearTimeout(bkTimer);
+  bkTimer=setTimeout(function(){ try{ AndroidBridge.saveBackup(JSON.stringify(state)); }catch(e){} }, 900);
+}
+function uid(){ return 'x'+Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+var FOLDER_COLORS=[['#0e3a5c','#00e5ff'],['#2c1650','#9664ff'],['#4a1042','#ff40aa'],['#0b3d2e','#2ee6a8'],['#4a2a08','#ffb340'],['#3d0b1e','#ff5d7a'],['#123','#4d7cff'],['#263238','#90caf9']];
+function folderColor(f){ var i=state.folders.indexOf(f); return FOLDER_COLORS[Math.abs(i)%FOLDER_COLORS.length]; }
+function $(id){ return document.getElementById(id); }
+var toastTimer=null;
+function toast(msg){ var t=$('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toastTimer); toastTimer=setTimeout(function(){t.classList.remove('show');},2600); if(window.AndroidBridge&&AndroidBridge.toast){/* native toast only for downloads */} }
+function renderStats(){
+  var el=$('statChip'); if(!el) return;
+  el.textContent='သီချင်း '+myNum(state.tracks.length)+' ပုဒ် • Folder '+myNum(state.folders.length)+' ခု';
+}
+
+/* =================== ENGINE v2 ===================
+   1) Native InnerTube — the phone talks to YouTube DIRECTLY (no middleman
+      server that can die; audio-only formats, never the video).
+   2) Invidious instances (auto-discovered + extras), proxied & direct modes.
+   3) Piped instances.  4) Cobalt instances (true MP3 when available). */
+var infoCallbacks={}, infoSeq=0;
+window.__onInfoResult=function(cbId, res){
+  var p=infoCallbacks[cbId]; if(p){ delete infoCallbacks[cbId]; p(res); }
+};
+function nativeGetInfo(id){
+  return new Promise(function(resolve, reject){
+    if(!(window.AndroidBridge && AndroidBridge.getInfoAsync)) { reject(new Error('no native bridge')); return; }
+    var cbId=++infoSeq;
+    var to=setTimeout(function(){ if(infoCallbacks[cbId]){ delete infoCallbacks[cbId]; reject(new Error('native timeout')); } }, 30000);
+    infoCallbacks[cbId]=function(res){
+      clearTimeout(to);
+      if(res && res.ok) resolve({ title:res.title, author:res.author, duration:res.duration,
+        audioUrl:res.audioUrl, expiresAt:res.expiresAt||0, source:res.source||'youtube-direct' });
+      else reject(new Error((res && res.error) || 'native failed'));
+    };
+    try{ AndroidBridge.getInfoAsync(id, cbId); }
+    catch(e){ clearTimeout(to); delete infoCallbacks[cbId]; reject(e); }
+  });
+}
+function loaderGetInfo(id){
+  return new Promise(function(resolve, reject){
+    if(!(window.AndroidBridge && AndroidBridge.getLoaderInfoAsync)) { reject(new Error('no loader bridge')); return; }
+    var cbId=++infoSeq;
+    var to=setTimeout(function(){ if(infoCallbacks[cbId]){ delete infoCallbacks[cbId]; reject(new Error('loader timeout')); } }, 280000);
+    infoCallbacks[cbId]=function(res){
+      clearTimeout(to);
+      if(res && res.ok) resolve({ title:res.title, author:res.author||'', duration:res.duration||0,
+        audioUrl:res.audioUrl, expiresAt:res.expiresAt||0, source:res.source||'loader-mp3' });
+      else reject(new Error((res && res.error) || 'loader failed'));
+    };
+    try{ AndroidBridge.getLoaderInfoAsync(id, cbId); }
+    catch(e){ clearTimeout(to); delete infoCallbacks[cbId]; reject(e); }
+  });
+}
+var SEED_INSTANCES=['https://invidious.f5.si'];
+var INVIDIOUS_EXTRA=['https://invidious.0011.lt','https://inv.nadeko.net','https://invidious.jing.rocks','https://yt.cdaut.de','https://invidious.privacyredirect.com','https://inv.tux.pizza'];
+var PIPED_LIST=['https://pipedapi.ducks.party','https://pipedapi.kavin.rocks','https://pipedapi.leptons.xyz','https://api.piped.yt','https://pipedapi.adminforge.de','https://pipedapi.nosebs.ru','https://piped-api.privacy.com.de'];
+var COBALT_LIST=['https://cobalt-api.kwiatekmiki.com','https://api.cobalt.blackcat.sweeux.org','https://cobalt.canine.tools','https://dwnld.nobulart.com'];
+var discovered=null, discoveredAt=0;
+function fetchTO(url, ms, opts){
+  return new Promise(function(res,rej){
+    var c=new AbortController(); var t=setTimeout(function(){c.abort();}, ms||12000);
+    var o=opts||{}; o.signal=c.signal;
+    fetch(url,o).then(function(r){ clearTimeout(t); res(r); }, function(e){ clearTimeout(t); rej(e); });
+  });
+}
+async function getInstances(){
+  if(discovered && (Date.now()-discoveredAt)<3600000) return discovered;
+  var list=SEED_INSTANCES.slice();
+  try{
+    var r=await fetchTO('https://api.invidious.io/instances.json', 9000);
+    var data=await r.json();
+    data.forEach(function(pair){ var info=pair[1]; if(info&&info.type==='https'&&info.api&&info.cors&&info.uri){ if(list.indexOf(info.uri)<0) list.push(info.uri); } });
+  }catch(e){}
+  discovered=list; discoveredAt=Date.now(); return list;
+}
+async function infoFromInvidious(inst, id, local){
+  var url=inst+'/api/v1/videos/'+id+'?fields=title,author,lengthSeconds,adaptiveFormats'+(local?'&local=true':'');
+  var r=await fetchTO(url, 9000);
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  var d=await r.json();
+  var a=pickAudio(d.adaptiveFormats||[]);
+  if(!a) throw new Error('audio မတွေ့ပါ');
+  return { title:d.title||'Unknown', author:d.author||'', duration:d.lengthSeconds||0,
+    audioUrl:a.url, expiresAt:parseExpire(a.url), source:inst+(local?'/proxy':'/direct') };
+}
+async function infoFromCobalt(inst, id){
+  var r=await fetchTO(inst, 10000, { method:'POST',
+    headers:{ 'Accept':'application/json', 'Content-Type':'application/json' },
+    body: JSON.stringify({ url:'https://www.youtube.com/watch?v='+id, downloadMode:'audio', audioFormat:'mp3' }) });
+  var d=await r.json();
+  if(d && (d.status==='tunnel'||d.status==='redirect') && d.url){
+    var meta=await quickMeta(id);
+    return { title:(meta&&meta.title)||'YouTube Audio', author:(meta&&meta.author)||'', duration:0,
+      audioUrl:d.url, expiresAt:Date.now()+50*60000, source:inst };
+  }
+  throw new Error('cobalt: '+((d&&d.error&&d.error.code)||'no url'));
+}
+async function infoFromPiped(inst, id){
+  var r=await fetchTO(inst+'/streams/'+id, 9000);
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  var d=await r.json();
+  var auds=(d.audioStreams||[]).filter(function(s){return s.url;});
+  if(!auds.length) throw new Error('audio မတွေ့ပါ');
+  var mp4=auds.filter(function(s){return (s.mimeType||'').indexOf('mp4')>=0;});
+  var pool=mp4.length?mp4:auds; pool.sort(function(x,y){return (y.bitrate||0)-(x.bitrate||0);});
+  return { title:d.title||'Unknown', author:d.uploader||'', duration:d.duration||0,
+    audioUrl:pool[0].url, expiresAt:parseExpire(pool[0].url), source:inst };
+}
+function raceFirst(promises, deadlineMs){
+  return new Promise(function(resolve, reject){
+    if(!promises.length){ reject(new Error('no servers')); return; }
+    var done=false, failed=0, lastErr=null;
+    var timer=setTimeout(function(){ if(!done){ done=true; reject(lastErr||new Error('အချိန် ကုန်သွားပါပြီ (timeout)')); } }, deadlineMs||25000);
+    promises.forEach(function(pr){
+      Promise.resolve(pr).then(function(v){ if(!done){ done=true; clearTimeout(timer); resolve(v); } },
+        function(e){ lastErr=e; failed++; if(failed>=promises.length && !done){ done=true; clearTimeout(timer); reject(lastErr||new Error('server အားလုံး မရပါ')); } });
+    });
+  });
+}
+async function legacyGetInfo(id, report){
+  var insts=await getInstances();
+  INVIDIOUS_EXTRA.forEach(function(u){ if(insts.indexOf(u)<0) insts.push(u); });
+  var tries=[];
+  insts.forEach(function(inst){ tries.push(infoFromInvidious(inst, id, true)); tries.push(infoFromInvidious(inst, id, false)); });
+  PIPED_LIST.forEach(function(p){ tries.push(infoFromPiped(p, id)); });
+  if(report) report('အရံ server '+myNum(tries.length)+' ခုကို တစ်ပြိုင်တည်း စမ်းနေပါတယ်...');
+  try{ return await raceFirst(tries, 20000); }
+  catch(e1){
+    if(report) report('MP3 server တွေနဲ့ စမ်းနေပါတယ်...');
+    var ctries=COBALT_LIST.map(function(c){ return infoFromCobalt(c, id); });
+    return await raceFirst(ctries, 12000);
+  }
+}
+/* v1.5: native-direct AND server-side engines race IN PARALLEL.
+   Server-side engines fetch with the SERVER's IP, so a bot-flag on the
+   phone's own IP no longer blocks conversion when a server succeeds. */
+async function getInfo(id, report, opts){
+  var useLoader = !opts || opts.loader !== false;
+  if(report) report('တိုက်ရိုက် + server များ တစ်ပြိုင်တည်း စမ်းနေပါတယ်...');
+  var natP=nativeGetInfo(id).then(function(v){ return {v:v}; }, function(e){ return {e:e}; });
+  var legP=legacyGetInfo(id, report).then(function(v){ return {v:v}; }, function(e){ return {e:e}; });
+  var lodP=useLoader ? loaderGetInfo(id).then(function(v){ return {v:v}; }, function(e){ return {e:e}; })
+                     : Promise.resolve({skip:true});
+  return new Promise(function(resolve, reject){
+    var done=false, pending=useLoader?3:2, natErr=null, legErr=null;
+    function settle(){
+      if(pending>0 || done) return;
+      done=true;
+      var err=(natErr && /LOGIN_REQUIRED|not a bot/i.test(natErr.message||'')) ? natErr : (legErr||natErr);
+      reject(err||new Error('မရပါ'));
+    }
+    natP.then(function(r){ pending--; if(r.v && !done){ done=true; if(report) report('ရပါပြီ ✓'); resolve(r.v); } else { natErr=r.e; settle(); } });
+    legP.then(function(r){ pending--; if(r.v && !done){ done=true; if(report) report('ရပါပြီ ✓'); resolve(r.v); } else { legErr=r.e; settle(); } });
+    lodP.then(function(r){ if(r.skip) return; pending--; if(r.v && !done){ done=true; if(report) report('MP3 server က ရပါပြီ ✓'); resolve(r.v); } else { settle(); } });
+  });
+}
+async function quickMeta(id){
+  try{
+    var r=await fetchTO('https://noembed.com/embed?url=https://www.youtube.com/watch?v='+id, 8000);
+    var d=await r.json();
+    if(d&&d.title) return {title:d.title, author:d.author_name||''};
+  }catch(e){}
+  return null;
+}
+
+/* =================== LOCAL FILE STORE (IndexedDB) =================== */
+function idbOpen(){ return new Promise(function(res,rej){ try{
+  var r=indexedDB.open('parami-mp3pro-files',1);
+  r.onupgradeneeded=function(){ r.result.createObjectStore('files'); };
+  r.onsuccess=function(){ res(r.result); }; r.onerror=function(){ rej(r.error); };
+}catch(e){ rej(e); } }); }
+async function idbPut(id, blob){ try{ var db=await idbOpen(); return await new Promise(function(res,rej){
+  var tx=db.transaction('files','readwrite'); tx.objectStore('files').put(blob,id);
+  tx.oncomplete=function(){res(true);}; tx.onerror=function(){rej(tx.error);}; }); }catch(e){ return false; } }
+async function idbGet(id){ try{ var db=await idbOpen(); return await new Promise(function(res,rej){
+  var rq=db.transaction('files').objectStore('files').get(id);
+  rq.onsuccess=function(){res(rq.result||null);}; rq.onerror=function(){rej(rq.error);}; }); }catch(e){ return null; } }
+async function idbDel(id){ try{ var db=await idbOpen(); var tx=db.transaction('files','readwrite'); tx.objectStore('files').delete(id); }catch(e){} }
+var localUrlCache={};
+
+/* =================== VIEWS =================== */
+var view='home';           /* home | folders | folder | lock | upload */
+var currentFolderId=null;
+var searchQ='';
+var folderQ='';
+var folderTrackQ='';
+var uploadDest='';        /* '' = Home, else folderId */
+var previewId=null, previewMeta=null;
+
+function trackRow(t, ctx, idx){
+  var playing = current && current.id===t.id;
+  var f = t.folderId ? allFolders().find(function(x){return x.id===t.folderId;}) : null;
+  return '<div class="track'+(playing?' playing':'')+'" data-play="'+t.id+'" data-ctx="'+ctx+'">'
+    +(idx!=null?'<div class="num">'+myNum(idx+1)+'</div>':'')
+    +'<img src="'+esc(t.thumb||'')+'" onerror="this.style.visibility=\'hidden\'" alt="">'
+    +'<div class="tt"><div class="t1">'+esc(t.title)+(f?'<span class="badge">📁 '+esc(f.name)+'</span>':'')+'</div>'
+    +'<div class="t2">'+esc(t.author||'')+(t.local?' • ဖုန်းထဲက ဖိုင်':'')+(t.shared?' • ☁ Shared':'')+'</div></div>'
+    +'<div class="eq"><i></i><i></i><i></i></div>'
+    +'<div class="dur">'+fmtTime(t.duration)+'</div>'
+    +'<div class="menu" data-menu="'+t.id+'">⋮</div></div>';
+}
+function render(){
+  document.querySelectorAll('.tab').forEach(function(b){ b.classList.toggle('on', b.dataset.view===view || (view==='folder'&&b.dataset.view==='folders')); });
+  var c=$('content');
+  if(view==='home') c.innerHTML=viewHome();
+  else if(view==='folders') c.innerHTML=viewFolders();
+  else if(view==='folder') c.innerHTML=viewFolder();
+  else if(view==='lock') c.innerHTML=viewLock();
+  else if(view==='upload') c.innerHTML=viewUpload();
+  bindContent();
+  renderStats();
+}
+function viewHome(){
+  var loose=homeTracks(allTracks()).slice().sort(function(a,b){return b.addedAt-a.addedAt;});
+  var list=loose;
+  if(searchQ){ var q=searchQ.toLowerCase(); list=list.filter(function(t){ return (t.title+' '+(t.author||'')).toLowerCase().indexOf(q)>=0; }); }
+  var h='';
+  h+='<div class="searchrow"><input type="text" id="searchBox" placeholder="🔍 အလွတ် သီချင်း ရှာရန်..." value="'+esc(searchQ)+'"></div>';
+  /* --- Folder section (kept separate from loose tracks) --- */
+  if(allFolders().length){
+    h+='<div class="secline"><h2>📁 Folder များ</h2><span class="small">'+myNum(allFolders().length)+' ခု</span><div class="ln"></div></div>';
+    h+='<div class="fstrip">'+allFolders().map(function(f,i){ return folderStripCard(f,i); }).join('')+'</div>';
+    h+='<div class="small" style="margin:0 2px">Folder ထဲက သီချင်းတွေက ဒီမှာ မပေါ်ပါ — Folder ကို နှိပ်ပြီး ထဲမှာပဲ ကြည့်ရပါမယ်</div>';
+  }
+  /* --- Loose section (no folder) --- */
+  h+='<div class="secline"><h2>🎵 အလွတ် သီချင်းများ</h2><span class="small">Folder မရှိ • '+myNum(loose.length)+' ပုဒ်</span><div class="ln"></div>'
+    +(loose.length?'<button class="btn small" id="playAllHome">▶ အားလုံးဖွင့်</button>':'')+'</div>';
+  if(!allTracks().length && !allFolders().length){
+    h+='<div class="card empty"><span class="big">🎧</span>သီချင်း မရှိသေးပါ<br>အောက်က <b style="color:var(--cyan)">＋ တင်ရန်</b> ကို နှိပ်ပြီး<br>YouTube link ထည့်လိုက်ရင် MP3 အဖြစ် ဒီမှာ ပေါ်လာပါမယ်</div>';
+  } else if(!list.length){
+    h+='<div class="card empty"><span class="big">🔍</span>'+(searchQ?'ရှာတာ မတွေ့ပါ':'အလွတ် သီချင်း မရှိသေးပါ — တင်ထားသမျှ Folder တွေထဲမှာပဲ ရှိနေပါတယ်')+'</div>';
+  } else {
+    h+=list.map(function(t,i){ return trackRow(t,'home',i); }).join('');
+  }
+  return h;
+}
+function folderStripCard(f, i){
+  var n=folderTracks(allTracks(),f.id).length;
+  var col=folderColor(f);
+  return '<div class="fcard" data-folder="'+f.id+'" style="background:linear-gradient(140deg,'+col[0]+','+col[1]+'55)">'
+    +'<div class="fic">📁 <span style="float:right;font-size:11px;font-weight:800;color:rgba(255,255,255,.7)">'+myNum(i+1)+'</span></div>'
+    +'<div class="fn">'+esc(f.name)+'</div><div class="fc">သီချင်း '+myNum(n)+' ပုဒ်</div></div>';
+}
+function folderCard(f, i){
+  var n=folderTracks(allTracks(),f.id).length;
+  var col=folderColor(f);
+  return '<div class="folder" data-folder="'+f.id+'" style="background:linear-gradient(140deg,'+col[0]+','+col[1]+'55)">'
+    +(f.shared?'':'<div class="fm" data-fmenu="'+f.id+'">⋮</div>')+'<div class="fic">📁</div>'
+    +'<div class="fn">'+esc(f.name)+'</div><div class="fc">သီချင်း '+myNum(n)+' ပုဒ်</div>'
+    +(i!=null?'<div class="fnum">'+myNum(i+1)+'</div>':'')+'</div>';
+}
+function viewFolders(){
+  var folders=allFolders();
+  if(folderQ){ var q=folderQ.toLowerCase(); folders=folders.filter(function(f){ return f.name.toLowerCase().indexOf(q)>=0; }); }
+  var h='<h2 class="sec">📁 Folder များ <span class="sp"></span><span class="small">'+myNum(state.folders.length)+' ခု</span></h2>';
+  h+='<div class="searchrow" style="margin-bottom:11px"><input type="text" id="folderSearch" placeholder="🔍 Folder ရှာရန်..." value="'+esc(folderQ)+'"></div>';
+  h+='<div class="fgrid">'
+    + folders.map(function(f){ return folderCard(f, folders.indexOf(f)); }).join('')
+    + '<div class="folder newf" id="newFolderBtn"><div class="fic">＋</div><div class="fn">Folder အသစ်</div></div></div>';
+  if(folderQ && !folders.length) h+='<div class="card empty" style="margin-top:10px"><span class="big">🔍</span>“'+esc(folderQ)+'” ဆိုတဲ့ Folder မတွေ့ပါ</div>';
+  var looseN=homeTracks(allTracks()).length;
+  h+='<div class="card" style="margin-top:11px;display:flex;align-items:center;gap:10px;cursor:pointer" id="goLoose">'
+    +'<div style="font-size:22px">🎵</div><div style="flex:1"><div style="font-weight:700;font-size:14px">အလွတ် သီချင်းများ (Folder မရှိ)</div>'
+    +'<div class="small">'+myNum(looseN)+' ပုဒ် — Home မှာ ရှိပါတယ်</div></div><div style="color:var(--dim)">›</div></div>';
+  h+='<div class="small" style="margin-top:10px;line-height:1.7">💡 Folder ခွဲပြီး တင်ထားတဲ့ သီချင်းတွေက Home မှာ မပေါ်ဘဲ သက်ဆိုင်ရာ Folder ထဲမှာပဲ ပေါ်ပါမယ်။</div>';
+  return h;
+}
+function viewFolder(){
+  var f=allFolders().find(function(x){return x.id===currentFolderId;});
+  if(!f){ view='folders'; return viewFolders(); }
+  var all=folderTracks(allTracks(),f.id).slice().sort(function(a,b){return b.addedAt-a.addedAt;});
+  var list=all;
+  if(folderTrackQ){ var q=folderTrackQ.toLowerCase(); list=list.filter(function(t){ return (t.title+' '+(t.author||'')).toLowerCase().indexOf(q)>=0; }); }
+  var h='<div style="margin-top:12px"><button class="backbtn" id="backFolders">← Folder များသို့</button></div>';
+  h+='<h2 class="sec">📁 '+esc(f.name)+' <span class="sp"></span><span class="small">'+myNum(all.length)+' ပုဒ်</span></h2>';
+  h+='<div class="searchrow" style="margin-bottom:10px"><input type="text" id="folderTrackSearch" placeholder="🔍 ဒီ Folder ထဲမှာ ရှာရန်..." value="'+esc(folderTrackQ)+'"></div>';
+  h+='<div style="display:flex;gap:8px;margin-bottom:11px">'
+    +(all.length?'<button class="btn small" id="playAllFolder">▶ အားလုံးဖွင့်</button>':'')
+    +'<button class="btn small ghost" id="addToFolder">＋ ဒီ Folder ထဲ တင်ရန်</button></div>';
+  if(!all.length) h+='<div class="card empty"><span class="big">🎵</span>ဒီ Folder ထဲမှာ သီချင်း မရှိသေးပါ<br>“＋ ဒီ Folder ထဲ တင်ရန်” ကို နှိပ်ပြီး YouTube link ထည့်ပါ</div>';
+  else if(!list.length) h+='<div class="card empty"><span class="big">🔍</span>ရှာတာ မတွေ့ပါ</div>';
+  else h+=list.map(function(t,i){ return trackRow(t,'folder',i); }).join('');
+  return h;
+}
+/* =================== UPLOAD PASSWORD GATE =================== */
+var uploadUnlocked=false;
+try{ uploadUnlocked=sessionStorage.getItem('mp3pro_unlocked')==='1'; }catch(e){}
+function goUpload(){
+  view = uploadUnlocked ? 'upload' : 'lock';
+  render(); window.scrollTo(0,0);
+}
+function viewLock(){
+  return '<div class="lockwrap"><div class="card lockcard">'
+    +'<img class="lg" src="icon_sq.jpg" alt="">'
+    +'<h2>🔐 Upload တင်ရန် Password လိုပါတယ်</h2>'
+    +'<div class="small" style="line-height:1.7">သီချင်း နားထောင်/ဖွင့်တာတွေက Password မလိုပါ<br>အသစ် တင်ဖို့ အတွက်ပဲ လိုပါတယ်</div>'
+    +'<input type="password" id="pwInput" inputmode="numeric" autocomplete="off" placeholder="Password ရိုက်ထည့်ပါ">'
+    +'<div class="pwerr" id="pwErr">❌ Password မှားပါတယ် — ပြန်စစ်ပြီး ထပ်ရိုက်ပါ</div>'
+    +'<button class="btn" id="pwBtn" style="margin-top:16px">🔓 ဝင်မယ်</button>'
+    +'</div></div>';
+}
+function bindLock(){
+  if(view!=='lock') return;
+  var inp=$('pwInput'), btn=$('pwBtn');
+  function tryPw(){
+    if(verifyPw(inp.value)){
+      uploadUnlocked=true;
+      try{ localStorage.setItem('mp3pro_owner','1'); }catch(e){}
+      setTimeout(queuePublish, 800);
+      try{ sessionStorage.setItem('mp3pro_unlocked','1'); }catch(e){}
+      view='upload'; render(); window.scrollTo(0,0);
+      toast('🔓 Upload ဖွင့်ပြီးပါပြီ');
+    } else {
+      $('pwErr').classList.add('show'); inp.value=''; inp.focus();
+    }
+  }
+  if(btn) btn.addEventListener('click', tryPw);
+  if(inp){ inp.addEventListener('keydown', function(e){ if(e.key==='Enter') tryPw(); }); setTimeout(function(){ try{inp.focus();}catch(e){} },80); }
+}
+function destChips(){
+  var h='<div class="dest" data-dest="">🏠 Home မှာ ပေါ်မယ်</div>';
+  h+=state.folders.map(function(f){ return '<div class="dest" data-dest="'+f.id+'">📁 '+esc(f.name)+'</div>'; }).join('');
+  h+='<div class="dest" id="destNewFolder">＋ Folder အသစ်</div>';
+  return h;
+}
+function viewUpload(){
+  var h='<h2 class="sec">⬆ သီချင်း တင်ရန်</h2>';
+  h+='<div class="card hint">'
+    +'၁။ YouTube မှာ <b>Share → Copy link</b> လုပ်ပါ<br>'
+    +'၂။ Link ကို အောက်မှာ paste လုပ်ပါ — <b>Video လုံးဝ မဆွဲပါ၊ Audio (MP3) သီးသန့်ပဲ</b> ယူပါတယ်၊ ကြော်ငြာ မပါဘူး<br>'
+    +'၃။ <b>Home</b> ရွေးရင် အလွတ် အဖြစ် Home မှာ ပေါ်မယ်၊ <b>Folder</b> ရွေးရင် အဲဒီ Folder ထဲမှာပဲ ပေါ်မယ်</div>';
+  h+='<div class="card"><div style="font-weight:700;margin-bottom:9px">🔗 YouTube Link</div>'
+    +'<input type="url" id="ytInput" placeholder="https://youtu.be/... သို့မဟုတ် youtube.com/watch?v=...">'
+    +'<div class="preview" id="pvBox"><div class="pv"><img id="pvThumb" alt=""><div style="flex:1;min-width:0">'
+    +'<div class="ok">✓ Link မှန်ပါတယ်</div><div id="pvTitle" style="font-weight:700;font-size:14.5px;margin-top:3px;line-height:1.4"></div>'
+    +'<div class="small" id="pvAuthor"></div></div></div></div>'
+    +'<div style="font-weight:700;margin:16px 0 4px">📍 ဘယ်မှာ ပေါ်စေချင်လဲ?</div>'
+    +'<div class="destrow" id="destRow">'+destChips()+'</div>'
+    +'<button class="btn" id="convertBtn" style="margin-top:18px">🎵 MP3 ပြောင်းပြီး သိမ်းမယ်</button>'
+    +'<div class="prog" id="progBox"></div><div class="small" id="progDetail" style="margin-top:7px"></div><div class="errbox" id="errBox"></div>'
+    +'<div class="donebox card" id="doneBox"></div></div>';
+  h+='<div class="card" style="margin-top:12px"><div style="font-weight:700;margin-bottom:6px">📱 ဖုန်းထဲက MP3 ဖိုင် တင်ရန်</div>'
+    +'<div class="small" style="line-height:1.7;margin-bottom:11px">ဖုန်းထဲမှာ ရှိပြီးသား MP3/Audio ဖိုင်တွေကိုလည်း ရွေးပြီး အခု ရွေးထားတဲ့ နေရာ ('+'<span id="localDestLabel">Home</span>'+') ထဲ ထည့်နိုင်ပါတယ်</div>'
+    +'<button class="btn ghost" id="localBtn">📂 ဖိုင် ရွေးရန်</button></div>';
+  return h;
+}
+/* =================== CONTENT BINDINGS =================== */
+function bindSearch(id, get, set){
+  var el=$(id); if(!el) return;
+  el.addEventListener('input', function(){
+    set(el.value); var pos=el.selectionStart; render();
+    var n=$(id); if(n){ n.focus(); try{n.setSelectionRange(pos,pos);}catch(e){} }
+  });
+}
+function bindContent(){
+  bindSearch('searchBox', function(){return searchQ;}, function(v){searchQ=v;});
+  bindSearch('folderSearch', function(){return folderQ;}, function(v){folderQ=v;});
+  bindSearch('folderTrackSearch', function(){return folderTrackQ;}, function(v){folderTrackQ=v;});
+  var gl=$('goLoose'); if(gl) gl.addEventListener('click', function(){ view='home'; render(); window.scrollTo(0,0); });
+  document.querySelectorAll('[data-play]').forEach(function(el){
+    el.addEventListener('click', function(e){
+      if(e.target.closest('[data-menu]')) return;
+      var ctx=el.dataset.ctx;
+      var list=ctxList(ctx);
+      playTrack(el.dataset.play, list.map(function(t){return t.id;}));
+    });
+  });
+  document.querySelectorAll('[data-menu]').forEach(function(el){
+    el.addEventListener('click', function(e){ e.stopPropagation(); openTrackMenu(el.dataset.menu); });
+  });
+  document.querySelectorAll('[data-folder]').forEach(function(el){
+    el.addEventListener('click', function(e){
+      if(e.target.closest('[data-fmenu]')) return;
+      currentFolderId=el.dataset.folder; folderTrackQ=''; view='folder'; render(); window.scrollTo(0,0);
+    });
+  });
+  document.querySelectorAll('[data-fmenu]').forEach(function(el){
+    el.addEventListener('click', function(e){ e.stopPropagation(); openFolderMenu(el.dataset.fmenu); });
+  });
+  var nf=$('newFolderBtn'); if(nf) nf.addEventListener('click', createFolderFlow);
+  var pa=$('playAllHome'); if(pa) pa.addEventListener('click', function(){ var l=homeTracks(allTracks()).slice().sort(function(a,b){return b.addedAt-a.addedAt;}); if(l.length) playTrack(l[0].id, l.map(function(t){return t.id;})); });
+  var pf=$('playAllFolder'); if(pf) pf.addEventListener('click', function(){ var l=folderTracks(allTracks(),currentFolderId).slice().sort(function(a,b){return b.addedAt-a.addedAt;}); if(l.length) playTrack(l[0].id, l.map(function(t){return t.id;})); });
+  var bf=$('backFolders'); if(bf) bf.addEventListener('click', function(){ view='folders'; render(); });
+  var af=$('addToFolder'); if(af) af.addEventListener('click', function(){ uploadDest=currentFolderId; goUpload(); if(view==='upload') syncDestUI(); });
+  bindLock();
+  bindUpload();
+}
+function ctxList(ctx){
+  var list = ctx==='folder' ? folderTracks(allTracks(), currentFolderId)
+           : ctx==='home' ? homeTracks(allTracks()) : allTracks();
+  if(ctx==='home' && searchQ){ var q=searchQ.toLowerCase(); list=list.filter(function(t){ return (t.title+' '+(t.author||'')).toLowerCase().indexOf(q)>=0; }); }
+  return list.slice().sort(function(a,b){return b.addedAt-a.addedAt;});
+}
+function createFolderFlow(){
+  var name=prompt('Folder နာမည် ထည့်ပါ (ဥပမာ - မြန်မာသီချင်းများ)');
+  if(name===null) return;
+  name=String(name).trim(); if(!name){ toast('နာမည် ထည့်ပါ'); return null; }
+  var f={id:uid(), name:name, createdAt:Date.now()};
+  state.folders.push(f); save(); render();
+  toast('Folder “'+name+'” ဆောက်ပြီးပါပြီ');
+  return f;
+}
+
+/* =================== UPLOAD =================== */
+var pvTimer=null;
+function bindUpload(){
+  if(view!=='upload') return;
+  syncDestUI();
+  var inp=$('ytInput');
+  if(inp){
+    inp.addEventListener('input', function(){
+      clearTimeout(pvTimer);
+      pvTimer=setTimeout(async function(){
+        var id=parseVideoId(inp.value);
+        previewId=id; previewMeta=null;
+        var box=$('pvBox');
+        if(!id){ box.classList.remove('show'); return; }
+        $('pvThumb').src='https://i.ytimg.com/vi/'+id+'/hqdefault.jpg';
+        $('pvTitle').textContent='ခေါင်းစဉ် ယူနေပါတယ်...'; $('pvAuthor').textContent='';
+        box.classList.add('show');
+        var meta=await quickMeta(id);
+        if(previewId!==id) return;
+        previewMeta=meta;
+        $('pvTitle').textContent=meta?meta.title:'(ပြောင်းတဲ့အခါ ခေါင်းစဉ် အလိုအလျောက် ရပါမယ်)';
+        $('pvAuthor').textContent=meta?(meta.author||''):'';
+      }, 450);
+    });
+  }
+  var cb=$('convertBtn'); if(cb) cb.addEventListener('click', convertFlow);
+  var lb=$('localBtn'); if(lb) lb.addEventListener('click', function(){ $('fileInput').click(); });
+  document.querySelectorAll('#destRow .dest[data-dest]').forEach(function(d){
+    d.addEventListener('click', function(){ uploadDest=d.dataset.dest; syncDestUI(); });
+  });
+  var dnf=$('destNewFolder');
+  if(dnf) dnf.addEventListener('click', function(){ var f=createFolderFlowSilent(); if(f){ uploadDest=f.id; view='upload'; render(); syncDestUI(); } });
+}
+function createFolderFlowSilent(){
+  var name=prompt('Folder နာမည် ထည့်ပါ');
+  if(name===null) return null;
+  name=String(name).trim(); if(!name) return null;
+  var f={id:uid(), name:name, createdAt:Date.now()};
+  state.folders.push(f); save();
+  return f;
+}
+function destLabel(dest){
+  if(!dest) return '🏠 Home';
+  var f=state.folders.find(function(x){return x.id===dest;});
+  return f?('📁 '+f.name):'🏠 Home';
+}
+function syncDestUI(){
+  document.querySelectorAll('#destRow .dest[data-dest]').forEach(function(d){
+    d.classList.toggle('sel', d.dataset.dest===uploadDest);
+  });
+  var l=$('localDestLabel'); if(l) l.textContent=destLabel(uploadDest);
+}
+function progLines(lines, activeIdx){
+  var box=$('progBox'); if(!box) return;
+  box.classList.add('show');
+  box.innerHTML=lines.map(function(ln,i){
+    if(i<activeIdx) return '<div class="line done">✓ '+ln+'</div>';
+    if(i===activeIdx) return '<div class="line act"><div class="spin"></div>'+ln+'</div>';
+    return '<div class="line">• '+ln+'</div>';
+  }).join('');
+}
+async function convertFlow(){
+  if(!uploadUnlocked){ goUpload(); return; }
+  var inp=$('ytInput');
+  var id=parseVideoId(inp?inp.value:'')||previewId;
+  var err=$('errBox'); err.classList.remove('show'); $('doneBox').classList.remove('show');
+  if(!id){ err.textContent='⚠ YouTube link မှန် မမှန် ပြန်စစ်ပါ — youtube.com/watch?v=... သို့မဟုတ် youtu.be/... ပုံစံ ဖြစ်ရပါမယ်'; err.classList.add('show'); return; }
+  var btn=$('convertBtn'); btn.disabled=true; btn.textContent='⏳ ပြောင်းနေပါတယ်...';
+  var steps=['Link စစ်ဆေးရန်','သီချင်း အချက်အလက် ယူရန်','Audio (MP3) link ရှာရန်','သိမ်းဆည်းရန်'];
+  try{
+    progLines(steps,1);
+    var info=await getInfo(id, function(msg){ var d=$('progDetail'); if(d) d.textContent='⏳ '+msg; }, {loader:true});
+    progLines(steps,3);
+    var t={ id:uid(), videoId:id, title:(previewMeta&&previewMeta.title)||info.title,
+      author:info.author||(previewMeta&&previewMeta.author)||'', duration:info.duration||0,
+      thumb:'https://i.ytimg.com/vi/'+id+'/hqdefault.jpg',
+      folderId:uploadDest||null, audioUrl:info.audioUrl, expiresAt:info.expiresAt||0, urlAt:Date.now(), source:info.source||'',
+      srcUrl:'https://www.youtube.com/watch?v='+id, addedAt:Date.now(), local:false };
+    state.tracks.push(t); save(); warmTrack(t);
+    progLines(steps,4);
+    var done=$('doneBox'); done.classList.add('show');
+    done.innerHTML='<div class="big">✅</div><div style="font-weight:800;font-size:16px;margin:6px 0">'+esc(t.title)+'</div>'
+      +'<div class="small" style="margin-bottom:14px">'+destLabel(t.folderId)+' ထဲမှာ သိမ်းပြီးပါပြီ — ကြော်ငြာ မပါဘဲ ဖွင့်လို့ ရပါပြီ</div>'
+      +'<div style="display:flex;gap:9px"><button class="btn" id="donePlay">▶ အခု ဖွင့်မယ်</button>'
+      +'<button class="btn ghost" id="doneGo">'+(t.folderId?'📁 Folder ထဲ ဝင်မယ်':'🏠 Home သွားမယ်')+'</button></div>';
+    $('donePlay').addEventListener('click', function(){ playTrack(t.id, [t.id]); });
+    $('doneGo').addEventListener('click', function(){
+      if(t.folderId){ currentFolderId=t.folderId; view='folder'; } else view='home';
+      render(); window.scrollTo(0,0);
+    });
+    if(inp) inp.value=''; previewId=null; var pv=$('pvBox'); if(pv) pv.classList.remove('show');
+    toast('သိမ်းပြီးပါပြီ ✓');
+  }catch(e){
+    var em=(e&&e.message)?e.message:String(e);
+    var guide=/LOGIN_REQUIRED|not a bot/i.test(em)
+      ? '🤖 YouTube က ဒီ network IP ကို bot လို့ စစ်နေပါတယ် — <b>WiFi ပြောင်းသုံးကြည့်ပါ</b> (သို့မဟုတ်) ၁၀ မိနစ်လောက် စောင့်ပြီး ပြန်စမ်းပါ။'
+      : 'အင်တာနက် စစ်ပြီး ပြန်ကြိုးစားပါ။';
+    err.innerHTML='❌ မပြောင်းနိုင်ပါ — '+guide+'<br><span class="small">(Error: '+esc(em)+')</span><br><button class="btn small" style="margin-top:10px" onclick="window.__retryConvert()">🔁 ပြန် ကြိုးစားမယ်</button>';
+    var pd=$('progDetail'); if(pd) pd.textContent='';
+    err.classList.add('show');
+    var pb=$('progBox'); if(pb) pb.classList.remove('show');
+  }finally{
+    btn.disabled=false; btn.textContent='🎵 MP3 ပြောင်းပြီး သိမ်းမယ်';
+  }
+}
+window.__retryConvert=function(){ convertFlow(); };
+/* local file upload */
+$('fileInput').addEventListener('change', async function(ev){
+  if(!uploadUnlocked){ ev.target.value=''; goUpload(); return; }
+  var files=Array.prototype.slice.call(ev.target.files||[]);
+  if(!files.length) return;
+  var added=0;
+  for(var i=0;i<files.length;i++){
+    var file=files[i];
+    var t={ id:uid(), videoId:null, title:file.name.replace(/\.[^.]+$/,''), author:'', duration:0,
+      thumb:'', folderId:uploadDest||null, audioUrl:'', expiresAt:0, srcUrl:'', addedAt:Date.now()+i, local:true };
+    var ok=await idbPut(t.id, file);
+    if(!ok){ toast('ဖိုင် သိမ်းလို့ မရပါ (browser storage ပြည့်နေနိုင်)'); continue; }
+    localUrlCache[t.id]=URL.createObjectURL(file);
+    state.tracks.push(t); warmTrack(t); added++;
+    probeLocalDuration(t);
+  }
+  save(); ev.target.value='';
+  if(added){ toast('ဖိုင် '+added+' ခု '+destLabel(uploadDest)+' ထဲ ထည့်ပြီးပါပြီ ✓'); if(view==='upload') render(); }
+});
+function probeLocalDuration(t){
+  try{ var a=new Audio(); a.preload='metadata'; a.src=localUrlCache[t.id];
+    a.onloadedmetadata=function(){ t.duration=Math.floor(a.duration||0); save(); if(view!=='upload') render(); };
+  }catch(e){}
+}
+
+/* =================== SHEETS / MENUS =================== */
+function openSheet(html){ $('sheet').innerHTML=html; $('sheetWrap').classList.add('show'); }
+function closeSheet(){ $('sheetWrap').classList.remove('show'); }
+$('sheetWrap').addEventListener('click', function(e){ if(e.target.id==='sheetWrap') closeSheet(); });
+function findTrack(id){ return state.tracks.find(function(t){return t.id===id;}) || sharedLib.tracks.find(function(t){return t.id===id;}); }
+function openTrackMenu(id){
+  var t=findTrack(id); if(!t) return;
+  var f=t.folderId?allFolders().find(function(x){return x.id===t.folderId;}):null;
+  var sharedOnly = !!t.shared && !ownTrack(id);
+  openSheet('<h3>'+esc(t.title)+'</h3><div class="small" style="margin-bottom:6px">'+esc(t.author||'')+(f?' • 📁 '+esc(f.name):' • 🏠 Home')+(sharedOnly?' • ☁ Shared စာရင်းက':'')+'</div>'
+    +'<button class="shitem" id="shPlay">▶ ဖွင့်ရန်</button>'
+    +'<button class="shitem" id="shDl">⬇ MP3 ဒေါင်းရန်</button>'
+    +(sharedOnly?'':'<button class="shitem" id="shMove">📁 Folder ရွှေ့ရန်</button>'
+    +'<button class="shitem danger" id="shDel">🗑 ဖျက်ရန်</button>'));
+  $('shPlay').addEventListener('click', function(){ closeSheet(); playTrack(id, allTracks().map(function(x){return x.id;})); });
+  $('shDl').addEventListener('click', function(){ closeSheet(); downloadTrack(t); });
+  var shMv=$('shMove'); if(shMv) shMv.addEventListener('click', function(){ openMoveSheet(t); });
+  var shDel=$('shDel'); if(shDel) shDel.addEventListener('click', function(){
+    if(confirm('“'+t.title+'” ကို ဖျက်မှာ သေချာပါသလား?')){
+      state.tracks=state.tracks.filter(function(x){return x.id!==id;});
+      if(t.local) idbDel(id);
+      if(current&&current.id===id){ audio.pause(); stopNative(); current=null; $('mini').classList.remove('show'); }
+      save(); closeSheet(); render(); toast('ဖျက်ပြီးပါပြီ');
+    }
+  });
+}
+function openMoveSheet(t){
+  var items='<h3>📁 ဘယ် Folder ကို ရွှေ့မလဲ?</h3>'
+    +'<button class="shitem" data-mv="">🏠 Home'+( !t.folderId?' ✓ (လက်ရှိ)':'')+'</button>'
+    + state.folders.map(function(f){ return '<button class="shitem" data-mv="'+f.id+'">📁 '+esc(f.name)+(t.folderId===f.id?' ✓ (လက်ရှိ)':'')+'</button>'; }).join('');
+  openSheet(items);
+  document.querySelectorAll('[data-mv]').forEach(function(b){
+    b.addEventListener('click', function(){
+      t.folderId=b.dataset.mv||null; save(); closeSheet(); render();
+      toast(b.dataset.mv?'Folder ထဲ ရွှေ့ပြီးပါပြီ ✓':'Home ကို ရွှေ့ပြီးပါပြီ ✓');
+    });
+  });
+}
+function openFolderMenu(fid){
+  var f=state.folders.find(function(x){return x.id===fid;});
+  if(!f){ toast('☁ Shared Folder — မူရင်း တင်သူပဲ ပြင်/ဖျက် လို့ရပါတယ်'); return; }
+  var n=folderTracks(state.tracks,fid).length;
+  openSheet('<h3>📁 '+esc(f.name)+'</h3><div class="small" style="margin-bottom:6px">သီချင်း '+myNum(n)+' ပုဒ်</div>'
+    +'<button class="shitem" id="fmOpen">📂 ဖွင့်ရန်</button>'
+    +'<button class="shitem" id="fmRename">✏ နာမည် ပြင်ရန်</button>'
+    +'<button class="shitem danger" id="fmDel">🗑 Folder ဖျက်ရန်</button>');
+  $('fmOpen').addEventListener('click', function(){ closeSheet(); currentFolderId=fid; folderTrackQ=''; view='folder'; render(); window.scrollTo(0,0); });
+  $('fmRename').addEventListener('click', function(){
+    var name=prompt('Folder နာမည် အသစ်', f.name);
+    if(name!==null && String(name).trim()){ f.name=String(name).trim(); save(); closeSheet(); render(); }
+  });
+  $('fmDel').addEventListener('click', function(){
+    openSheet('<h3>📁 “'+esc(f.name)+'” ကို ဖျက်မလား?</h3><div class="small" style="line-height:1.7;margin-bottom:8px">သီချင်း '+myNum(n)+' ပုဒ် ပါပါတယ် — ဘယ်လို လုပ်မလဲ ရွေးပါ</div>'
+      +'<button class="shitem" id="fdMove">🏠 သီချင်းတွေကို Home ရွှေ့ပြီး Folder ပဲ ဖျက်မယ်</button>'
+      +'<button class="shitem danger" id="fdAll">🗑 သီချင်းတွေ အပါ အားလုံး ဖျက်မယ်</button>'
+      +'<button class="shitem" id="fdCancel">မဖျက်တော့ပါ</button>');
+    $('fdCancel').addEventListener('click', closeSheet);
+    $('fdMove').addEventListener('click', function(){
+      state.tracks.forEach(function(t){ if(t.folderId===fid) t.folderId=null; });
+      state.folders=state.folders.filter(function(x){return x.id!==fid;});
+      if(currentFolderId===fid){ currentFolderId=null; if(view==='folder') view='folders'; }
+      save(); closeSheet(); render(); toast('Folder ဖျက်ပြီး သီချင်းတွေ Home ရွှေ့ပြီးပါပြီ');
+    });
+    $('fdAll').addEventListener('click', function(){
+      var gone=folderTracks(state.tracks,fid);
+      gone.forEach(function(t){ if(t.local) idbDel(t.id); });
+      state.tracks=state.tracks.filter(function(t){return t.folderId!==fid;});
+      state.folders=state.folders.filter(function(x){return x.id!==fid;});
+      if(currentFolderId===fid){ currentFolderId=null; if(view==='folder') view='folders'; }
+      save(); closeSheet(); render(); toast('အားလုံး ဖျက်ပြီးပါပြီ');
+    });
+  });
+}
+
+/* =================== PLAYER (native engine + web fallback) ===================
+   YouTube tracks play through the native PlaybackService: background play,
+   auto-next, notification-bar / lock-screen controls.
+   Local files (IndexedDB blobs) play through the WebView <audio> element. */
+var audio=$('audio');
+var current=null, queue=[], qIdx=-1, shuffle=false, repeatMode=0, retrying=false;
+var engine='web'; /* 'native' | 'web' */
+var nativePoll=null, seeking=false;
+var playErrCount={}, playErrSilent=false;
+var webFirstTrackId=null;
+var playErrAt={};
+function hasNative(){ return !!(window.AndroidBridge && AndroidBridge.playQueue); }
+function isExpired(t){ return t.expiresAt && Date.now()>t.expiresAt-60000; }
+async function ensureFreshUrl(t, force){
+  if(t.local || !t.videoId) return t;
+  var isLoaderT = !!(t.source && t.source.indexOf('loader')>=0);
+  var lifeMs = isLoaderT ? 5*60000 : 2*3600000;
+  var stale = !t.audioUrl || isExpired(t) || !t.urlAt || (Date.now()-t.urlAt > lifeMs);
+  if(!force && !stale) return t;
+  var info=await getInfo(t.videoId, null, {loader:isLoaderT});
+  t.audioUrl=info.audioUrl; t.expiresAt=info.expiresAt||0; t.urlAt=Date.now(); t.source=info.source||t.source||'';
+  if(info.title && (!t.title || t.title==='Unknown')) t.title=info.title;
+  if(!t.duration) t.duration=info.duration||0;
+  save(); return t;
+}
+function markPlaying(){
+  document.querySelectorAll('.track').forEach(function(el){ el.classList.toggle('playing', !!current && el.dataset.play===current.id); });
+}
+function warmTrack(t){
+  try{ if(window.AndroidBridge && AndroidBridge.warmCache && t && t.audioUrl && !t.local) AndroidBridge.warmCache(t.id, t.audioUrl); }catch(e){}
+}
+/* Loader (savenow) links die within minutes. Before playing such a track make
+   sure the cache proxy either already holds the file or is downloading it from
+   a live link; if the stored link is dead, force ONE fresh conversion. */
+async function ensurePlayableSource(t){
+  if(!(window.AndroidBridge && AndroidBridge.cacheState)) return;
+  var cs=null; try{ cs=JSON.parse(AndroidBridge.cacheState(t.id)); }catch(e){}
+  if(cs && (cs.done || cs.tooBig)) return;
+  if(!(cs && cs.failed)){
+    warmTrack(t);
+    for(var w=0; w<10; w++){
+      await new Promise(function(r){ setTimeout(r, 700); });
+      try{ cs=JSON.parse(AndroidBridge.cacheState(t.id)); }catch(e){}
+      if(!cs) break;
+      if(cs.done || cs.tooBig) return;
+      if(cs.failed) break;
+      if(cs.downloaded>0) return;
+    }
+    if(cs && !cs.failed) return;
+  }
+  toast('🔗 Link အသစ် ပြန်ယူနေပါတယ်...');
+  try{ await ensureFreshUrl(t, true); warmTrack(t); }catch(e){}
+}
+function proxiedSrc(t){
+  var src=t.audioUrl||'';
+  if(window.AndroidBridge && AndroidBridge.proxyUrlFor && src){
+    try{ return AndroidBridge.proxyUrlFor(t.id, src)||src; }catch(e){}
+  }
+  return src;
+}
+function webFallbackPlay(t){
+  if(window.AndroidBridge && AndroidBridge.stopPlayback){ try{ AndroidBridge.stopPlayback(); }catch(e){} }
+  engine='web';
+  current=t; qIdx=queue.indexOf(t.id);
+  updatePlayerUI(t); showMini();
+  audio.src=proxiedSrc(t);
+  audio.onplay=function(){ setPlayIcons(true); markPlaying(); if(current) playErrCount[current.id]=0; };
+  audio.onpause=function(){ setPlayIcons(false); markPlaying(); };
+  audio.onended=function(){ if(repeatMode===2){ audio.currentTime=0; audio.play(); } else { playNext(); } };
+  audio.onerror=function(){ toast('ဖွင့်လို့ မရပါ (browser player) — ခဏနေမှ ပြန်စမ်းပါ'); setPlayIcons(false); };
+  var pr=audio.play();
+  if(pr && pr.catch) pr.catch(function(){ toast('ဖွင့်လို့ မရပါ — link ကို ပြန်စစ်နေပါတယ်'); });
+  if(!window.__seekLoop){
+    window.__seekLoop=setInterval(function(){
+      if(engine!=='web' || !current) return;
+      if(audio.duration){ var pc2=(audio.currentTime||0)/audio.duration; if(!seeking) $('pSeek').value=Math.floor(pc2*1000);
+        $('pCur').textContent=fmtTime(audio.currentTime); $('pDur').textContent=fmtTime(audio.duration);
+        var mb=$('miniBar'); if(mb) mb.style.width=(pc2*100)+'%'; }
+    },500);
+  }
+}
+function setDiag(txt){ var d=$('pDiag'); if(d) d.textContent=txt||''; }
+function updatePlayerUI(t){
+  $('mini').classList.add('show');
+  $('miniThumb').src=t.thumb||''; $('miniTitle').textContent=t.title; $('miniArtist').textContent=t.author||'';
+  $('pThumb').src=t.thumb||''; $('pTitle').textContent=t.title; $('pArtist').textContent=t.author||'';
+  $('pDur').textContent=fmtTime(t.duration);
+  setDiag(t.local?'Local file':('Engine: '+(hasNative()?'Native':'Web')+(t.source?' • '+t.source:'')+' • v2.6'));
+  markPlaying();
+}
+function stopNative(){
+  if(hasNative()){ try{ AndroidBridge.stopPlayback(); }catch(e){} }
+  if(nativePoll){ clearInterval(nativePoll); nativePoll=null; }
+}
+async function playTrack(id, ctxIds, auto){
+  var t=findTrack(id); if(!t) return;
+  var ids=(ctxIds&&ctxIds.length)?ctxIds.slice():state.tracks.map(function(x){return x.id;});
+  retrying=false;
+  if(t.local){
+    engine='web'; stopNative();
+    queue=ids.filter(function(x){ var z=findTrack(x); return z&&z.local; });
+    if(queue.indexOf(id)<0) queue=[id];
+    qIdx=queue.indexOf(id);
+    current=t; updatePlayerUI(t); setPlayIcons(false);
+    await webPlay(t);
+    return;
+  }
+  if(t.source && t.source.indexOf('loader')>=0){ await ensurePlayableSource(t); }
+  /* native path */
+  var q=ids.map(function(x){ return findTrack(x); }).filter(function(z){ return z&&!z.local; });
+  if(!q.length) q=[t];
+  for(var i=0;i<q.length;i++){
+    var lifeI = (q[i].source && q[i].source.indexOf('loader')>=0) ? 5*60000 : 2*3600000;
+    var needed = !q[i].audioUrl || isExpired(q[i]) || !q[i].urlAt || (Date.now()-q[i].urlAt > lifeI);
+    if(needed){ try{ await ensureFreshUrl(q[i]); }catch(e){} }
+  }
+  queue=ids.slice();
+  qIdx=Math.max(0, queue.indexOf(id));
+  current=t; updatePlayerUI(current); setPlayIcons(false);
+  /* v2.1: the BROWSER player is the primary engine for ALL streamed tracks
+     (the user's website method), always fed through the local cache proxy so
+     seeks work and upstream quirks (Range, UA, IP binding) are handled by the
+     proxy's Java fetcher. The native MediaPlayer service is only a one-shot
+     fallback when the browser player errors. */
+  if(!auto && playErrCount[id]){ playErrCount[id]=0; delete playErrAt[id]; }
+  engine='web';
+  webFirstTrackId=id;
+  stopNative();
+  await webPlay(t);
+}
+async function startNativeQueue(q){
+  if(hasNative()){
+    engine='native';
+    try{ audio.pause(); }catch(e){}
+    var items=q.map(function(z){ return { id:z.id, url:z.audioUrl||'', title:z.title, author:z.author||'', thumb:z.thumb||'', duration:z.duration||0 }; });
+    try{
+      AndroidBridge.playQueue(JSON.stringify(items), qIdx, shuffle, repeatMode);
+      startNativePoll();
+      return;
+    }catch(e){ /* fall through to web */ }
+  }
+  engine='web';
+  await webPlay(current);
+}
+async function webPlay(t){
+  try{
+    if(t.local){
+      var url=localUrlCache[t.id];
+      if(!url){ var blob=await idbGet(t.id); if(!blob){ toast('ဖိုင် မတွေ့တော့ပါ — ပြန်တင်ပေးပါ'); return; } url=URL.createObjectURL(blob); localUrlCache[t.id]=url; }
+      audio.src=url;
+    } else {
+      if(!t.audioUrl || isExpired(t) || !t.urlAt) { try{ await ensureFreshUrl(t); }catch(e){} }
+      audio.src=proxiedSrc(t);
+    }
+    await audio.play();
+    playErrCount[t.id]=0;
+  }catch(e){
+    if(!t.local && !retrying){ retrying=true;
+      try{ t.audioUrl=''; t.expiresAt=0; await ensureFreshUrl(t); audio.src=t.audioUrl; await audio.play(); return; }catch(e2){}
+    }
+    if(webFirstTrackId && t.id===webFirstTrackId && hasNative()){
+      webFirstTrackId=null;
+      toast('Native player နဲ့ ပြန်စမ်းနေပါတယ်...');
+      var qq=queue.map(function(x){ return findTrack(x); }).filter(function(z){ return !!z; });
+      if(qq.length){ await startNativeQueue(qq); return; }
+    }
+    toast('ဖွင့်လို့ မရပါ — အင်တာနက် စစ်ပါ');
+  }
+}
+function setPlayIcons(playing){
+  $('miniPlay').textContent=playing?'⏸':'▶';
+  $('pPlay').textContent=playing?'⏸':'▶';
+}
+/* --- native state sync (poll + events) --- */
+function startNativePoll(){
+  if(nativePoll) clearInterval(nativePoll);
+  nativePoll=setInterval(syncNative, 600);
+  setTimeout(syncNative, 250);
+}
+function syncNative(){
+  if(engine!=='native'||!hasNative()) return;
+  var s=null;
+  try{ s=JSON.parse(AndroidBridge.getState()); }catch(e){ return; }
+  if(!s||!s.hasQueue) return;
+  if(s.trackId && (!current||s.trackId!==current.id)){
+    var nt=findTrack(s.trackId);
+    if(nt){ current=nt; qIdx=queue.indexOf(nt.id); updatePlayerUI(nt); }
+  }
+  if(s.playing && current && playErrCount[current.id]){ playErrCount[current.id]=0; }
+  setPlayIcons(!!s.playing);
+  var pos=(s.position||0)/1000, dur=(s.duration||0)/1000 || (current?current.duration:0) || 0;
+  if(dur>0){
+    $('miniBar').style.width=Math.min(100,(pos/dur)*100)+'%';
+    if(!seeking){ $('pSeek').value=Math.round((pos/dur)*1000); }
+    $('pCur').textContent=fmtTime(pos);
+    $('pDur').textContent=fmtTime(dur);
+  }
+  if(current && !current.duration && s.duration>0){ current.duration=Math.floor(s.duration/1000); save(); $('pDur').textContent=fmtTime(current.duration); }
+  if(s.ended) setPlayIcons(false);
+}
+window.__onNativeEvent=function(type, trackId){
+  if(type==='track'||type==='playstate'){ syncNative(); }
+  else if(type==='queueended'){ setPlayIcons(false); syncNative(); }
+  else if(type==='stopped'){ setPlayIcons(false); }
+  else if(type==='error'){
+    var parts=String(trackId||'').split('|');
+    var t=findTrack(parts[0]);
+    var code=(parts.length>1)?(' ['+parts.slice(1).join('/')+']'):'';
+    if(t && !t.local && engine==='native'){
+      playErrCount[t.id]=(playErrCount[t.id]||0)+1;
+      playErrAt[t.id]=Date.now();
+      var n=playErrCount[t.id];
+      setDiag('⚠ Play error'+code+' — ကြိုးစားမှု '+myNum(n));
+      try{ var st=JSON.parse(AndroidBridge.getState()); if(st && st.proxy) setDiag('⚠ ['+parts.slice(1).join('/')+'] '+st.proxy+' • v2.6'); }catch(_){}
+      if(n===1){
+        toast('ဖွင့်မရလို့ link အသစ် ပြန်ယူနေပါတယ်...');
+        t.audioUrl=''; t.expiresAt=0; t.urlAt=0;
+        ensureFreshUrl(t, true).then(function(){ playErrSilent=true; playTrack(t.id, queue, true); })
+          .catch(function(){ toast('ဖွင့်လို့ မရပါ'+code); });
+      } else if(n===2){
+        toast('ဖွင့်လို့ မရပါ'+code+' — link အသစ် ပြန်ယူပြီး နောက်တစ်ခါ စမ်းပါ');
+      } else {
+        toast('ဖွင့်လို့ မရပါ'+code+' — ဒီသီချင်းကို ခဏနေမှ ပြန်စမ်းပါ');
+      }
+    }
+  }
+};
+/* --- web <audio> events --- */
+audio.addEventListener('play', function(){ if(engine==='web') setPlayIcons(true); });
+audio.addEventListener('pause', function(){ if(engine==='web') setPlayIcons(false); });
+audio.addEventListener('timeupdate', function(){
+  if(engine!=='web') return;
+  if(audio.duration){ var pc=(audio.currentTime/audio.duration)*100;
+    $('miniBar').style.width=pc+'%'; if(!seeking) $('pSeek').value=Math.round(pc*10); $('pCur').textContent=fmtTime(audio.currentTime); }
+});
+audio.addEventListener('loadedmetadata', function(){ if(engine==='web'){ $('pDur').textContent=fmtTime(audio.duration); if(current&&!current.duration){ current.duration=Math.floor(audio.duration||0); save(); } } });
+audio.addEventListener('ended', function(){
+  if(engine!=='web') return;
+  if(repeatMode===2){ audio.currentTime=0; audio.play(); return; }
+  nextTrack(false);
+});
+audio.addEventListener('error', function(){
+  if(engine!=='web') return;
+  if(current && !current.local && !retrying){ retrying=true;
+    var t=current; t.expiresAt=0; t.audioUrl='';
+    ensureFreshUrl(t).then(function(){ audio.src=t.audioUrl; audio.play(); }).catch(function(){ toast('ဖွင့်လို့ မရပါ'); });
+  }
+});
+function nextTrack(manual){
+  if(engine==='native' && hasNative()){ try{ AndroidBridge.next(); setTimeout(syncNative,300); }catch(e){} return; }
+  if(!queue.length) return;
+  if(shuffle && queue.length>1){ var n; do{ n=Math.floor(Math.random()*queue.length); }while(n===qIdx); qIdx=n; }
+  else { qIdx++;
+    if(qIdx>=queue.length){ if(repeatMode===1||manual){ qIdx=0; } else { qIdx=queue.length-1; setPlayIcons(false); return; } } }
+  playTrack(queue[qIdx], queue);
+}
+function prevTrack(){
+  if(engine==='native' && hasNative()){ try{ AndroidBridge.prev(); setTimeout(syncNative,300); }catch(e){} return; }
+  if(audio.currentTime>4){ audio.currentTime=0; return; }
+  if(!queue.length) return;
+  qIdx--; if(qIdx<0) qIdx=queue.length-1;
+  playTrack(queue[qIdx], queue);
+}
+async function downloadTrack(t){
+  try{
+    if(t.local){
+      var blob=await idbGet(t.id);
+      if(!blob){ toast('ဖိုင် မတွေ့ပါ'); return; }
+      var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=sanitizeFilename(t.title)+'.mp3'; a.click(); return;
+    }
+    await ensureFreshUrl(t, true);
+    var isMp3=(t.source&&t.source.indexOf('loader')>=0)||(t.audioUrl&&t.audioUrl.indexOf('savenow.to')>=0);
+    var name=sanitizeFilename(t.title)+(isMp3?'.mp3':'.m4a');
+    if(window.AndroidBridge&&AndroidBridge.download){ AndroidBridge.download(t.audioUrl, name); }
+    else { var a2=document.createElement('a'); a2.href=t.audioUrl; a2.download=name; a2.target='_blank'; a2.click(); }
+  }catch(e){ toast('ဒေါင်းလို့ မရပါ — အင်တာနက် စစ်ပါ'); }
+}
+function togglePlay(){
+  if(!current) return;
+  if(engine==='native' && hasNative()){ try{ AndroidBridge.toggle(); setTimeout(syncNative,250); }catch(e){} return; }
+  if(audio.paused) audio.play(); else audio.pause();
+}
+$('miniPlay').addEventListener('click', function(e){ e.stopPropagation(); togglePlay(); });
+$('miniNext').addEventListener('click', function(e){ e.stopPropagation(); nextTrack(true); });
+$('miniInner').addEventListener('click', function(){ $('player').classList.add('open'); syncNative(); });
+$('pDown').addEventListener('click', function(){ $('player').classList.remove('open'); });
+$('pPlay').addEventListener('click', togglePlay);
+$('pNext').addEventListener('click', function(){ nextTrack(true); });
+$('pPrev').addEventListener('click', prevTrack);
+$('pShuffle').addEventListener('click', function(){ shuffle=!shuffle; this.classList.toggle('on',shuffle); if(engine==='native'&&hasNative()){ try{ AndroidBridge.setModes(shuffle, repeatMode); }catch(e){} } toast(shuffle?'🔀 Shuffle ဖွင့်ထားတယ်':'Shuffle ပိတ်ထားတယ်'); });
+$('pRepeat').addEventListener('click', function(){ repeatMode=(repeatMode+1)%3; this.classList.toggle('on',repeatMode>0); this.textContent=repeatMode===2?'🔂':'🔁'; if(engine==='native'&&hasNative()){ try{ AndroidBridge.setModes(shuffle, repeatMode); }catch(e){} } toast(['Repeat ပိတ်','🔁 အားလုံး Repeat','🔂 တစ်ပုဒ်တည်း Repeat'][repeatMode]); });
+$('pSeek').addEventListener('pointerdown', function(){ seeking=true; });
+$('pSeek').addEventListener('pointerup', function(){ seeking=false; });
+$('pSeek').addEventListener('input', function(){
+  var pc=this.value/1000;
+  if(engine==='native' && hasNative() && current){
+    var dur=current.duration||0;
+    try{ var s=JSON.parse(AndroidBridge.getState()); if(s&&s.duration) dur=s.duration/1000; }catch(e){}
+    if(dur>0){ AndroidBridge.seekTo(Math.round(pc*dur*1000)); $('pCur').textContent=fmtTime(pc*dur); }
+  } else if(audio.duration){ audio.currentTime=pc*audio.duration; }
+});
+$('pDownload').addEventListener('click', function(){ if(current) downloadTrack(current); });
+$('pMove').addEventListener('click', function(){ if(current){ $('player').classList.remove('open'); openMoveSheet(current); } });
+
+/* =================== NAV / BACK / INIT =================== */
+document.querySelectorAll('.tab').forEach(function(b){
+  b.addEventListener('click', function(){ view=b.dataset.view; render(); window.scrollTo(0,0); fetchShared(false); });
+});
+$('fabUpload').addEventListener('click', function(){ goUpload(); });
+window.__backExit=false;
+window.__onAndroidBack=function(){
+  if($('sheetWrap').classList.contains('show')){ closeSheet(); window.__backExit=false; return; }
+  if($('player').classList.contains('open')){ $('player').classList.remove('open'); window.__backExit=false; return; }
+  if(view==='lock'){ view='home'; render(); window.__backExit=false; return; }
+  if(view==='folder'){ view='folders'; render(); window.__backExit=false; return; }
+  if(view!=='home'){ view='home'; render(); window.__backExit=false; return; }
+  window.__backExit=true;
+};
+try{
+  if(window.AndroidBridge && AndroidBridge.getLastCrash){
+    var crashTxt=AndroidBridge.getLastCrash();
+    if(crashTxt){
+      var cb=$('crashBar');
+      cb.style.display='block';
+      cb.textContent='⚠ အရင် crash မှတ်တမ်း (screenshot ပို့ပေးပါ):\n'+crashTxt.slice(0,500)+'  [နှိပ်ရင် ပျောက်မယ်]';
+      cb.addEventListener('click', function(){ cb.style.display='none'; try{ AndroidBridge.clearCrash(); }catch(e){} });
+    }
+  }
+}catch(e){}
+render();
+if(restoredFromBackup){ setTimeout(function(){ toast('💾 Backup ကနေ သီချင်း '+myNum(restoredFromBackup)+' ပုဒ် ပြန်ရထားပါတယ်'); }, 600); }
+setTimeout(function(){ fetchShared(true); }, 1200);
+</script>
+</body>
+</html>
