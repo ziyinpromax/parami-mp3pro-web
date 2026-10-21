@@ -631,12 +631,6 @@ function viewHome(){
   if(searchQ){ var q=searchQ.toLowerCase(); list=list.filter(function(t){ return (t.title+' '+(t.author||'')).toLowerCase().indexOf(q)>=0; }); }
   var h='';
   h+='<div class="searchrow"><input type="text" id="searchBox" placeholder="🔍 အလွတ် သီချင်း ရှာရန်..." value="'+esc(searchQ)+'"></div>';
-  /* --- Folder section (kept separate from loose tracks) --- */
-  if(allFolders().length){
-    h+='<div class="secline"><h2>📁 Folder များ</h2><span class="small">'+myNum(allFolders().length)+' ခု</span><div class="ln"></div></div>';
-    h+='<div class="fstrip">'+allFolders().map(function(f,i){ return folderStripCard(f,i); }).join('')+'</div>';
-    h+='<div class="small" style="margin:0 2px">Folder ထဲက သီချင်းတွေက ဒီမှာ မပေါ်ပါ — Folder ကို နှိပ်ပြီး ထဲမှာပဲ ကြည့်ရပါမယ်</div>';
-  }
   /* --- Loose section (no folder) --- */
   h+='<div class="secline"><h2>🎵 အလွတ် သီချင်းများ</h2><span class="small">Folder မရှိ • '+myNum(loose.length)+' ပုဒ်</span><div class="ln"></div>'
     +(loose.length?'<button class="btn small" id="playAllHome">▶ အားလုံးဖွင့်</button>':'')+'</div>';
@@ -1371,7 +1365,10 @@ $('pSeek').addEventListener('input', function(){
     var dur=current.duration||0;
     try{ var s=JSON.parse(AndroidBridge.getState()); if(s&&s.duration) dur=s.duration/1000; }catch(e){}
     if(dur>0){ AndroidBridge.seekTo(Math.round(pc*dur*1000)); $('pCur').textContent=fmtTime(pc*dur); }
-  } else if(audio.duration){ audio.currentTime=pc*audio.duration; }
+  } else {
+    var sd=isFinite(audio.duration)?audio.duration:((current&&current.duration)||0);
+    if(sd>0){ try{ audio.currentTime=pc*sd; }catch(e){} }
+  }
 });
 $('pDownload').addEventListener('click', function(){ if(current) downloadTrack(current); });
 $('pMove').addEventListener('click', function(){ if(current){ $('player').classList.remove('open'); openMoveSheet(current); } });
