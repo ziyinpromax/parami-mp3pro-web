@@ -343,9 +343,18 @@ try{
 }catch(e){}
 var GH_LIB_URL='https://raw.githubusercontent.com/ziyinpromax/parami-mp3pro-library/main/library.json';
 var sharedLib={folders:[],tracks:[]};
+var hiddenShared={tracks:[],folders:[]};
+try{ var hs=localStorage.getItem('mp3pro_hidden'); if(hs){ var hp=JSON.parse(hs); if(hp){ hiddenShared={tracks:hp.tracks||[], folders:hp.folders||[]}; } } }catch(e){}
+function saveHidden(){ try{ localStorage.setItem('mp3pro_hidden', JSON.stringify(hiddenShared)); }catch(e){} }
+function hideSharedTrack(id){ if(hiddenShared.tracks.indexOf(id)<0){ hiddenShared.tracks.push(id); saveHidden(); } }
+function hideSharedFolder(fid){
+  if(hiddenShared.folders.indexOf(fid)<0) hiddenShared.folders.push(fid);
+  sharedLib.tracks.forEach(function(t){ if(t.folderId===fid && hiddenShared.tracks.indexOf(t.id)<0) hiddenShared.tracks.push(t.id); });
+  saveHidden();
+}
 var sharedAt=0;
-function allFolders(){ var out=state.folders.slice(); var ids={}; out.forEach(function(f){ids[f.id]=1;}); sharedLib.folders.forEach(function(f){ if(!ids[f.id]) out.push(f); }); return out; }
-function allTracks(){ var out=state.tracks.slice(); var ids={}; out.forEach(function(t){ids[t.id]=1;}); sharedLib.tracks.forEach(function(t){ if(!ids[t.id]) out.push(t); }); return out; }
+function allFolders(){ var out=state.folders.slice(); var ids={}; out.forEach(function(f){ids[f.id]=1;}); sharedLib.folders.forEach(function(f){ if(!ids[f.id] && hiddenShared.folders.indexOf(f.id)<0) out.push(f); }); return out; }
+function allTracks(){ var out=state.tracks.slice(); var ids={}; out.forEach(function(t){ids[t.id]=1;}); sharedLib.tracks.forEach(function(t){ if(!ids[t.id] && hiddenShared.tracks.indexOf(t.id)<0) out.push(t); }); return out; }
 function ownTrack(id){ return state.tracks.find(function(t){return t.id===id;})||null; }
 function isOwner(){ try{ return localStorage.getItem('mp3pro_owner')==='1'; }catch(e){ return false; } }
 function fetchShared(force){
@@ -595,7 +604,7 @@ function render(){
   renderStats();
 }
 function viewHome(){
-  var loose=homeTracks(allTracks()).slice().sort(function(a,b){return b.addedAt-a.addedAt;});
+  var loose=homeTracks(allTracks()).slice().sort(function(a,b){return a.addedAt-b.addedAt;});
   var list=loose;
   if(searchQ){ var q=searchQ.toLowerCase(); list=list.filter(function(t){ return (t.title+' '+(t.author||'')).toLowerCase().indexOf(q)>=0; }); }
   var h='';
@@ -629,7 +638,7 @@ function folderCard(f, i){
   var n=folderTracks(allTracks(),f.id).length;
   var col=folderColor(f);
   return '<div class="folder" data-folder="'+f.id+'" style="background:linear-gradient(140deg,'+col[0]+','+col[1]+'55)">'
-    +(f.shared?'':'<div class="fm" data-fmenu="'+f.id+'">⋮</div>')+'<div class="fic">📁</div>'
+    +'<div class="fm" data-fmenu="'+f.id+'">⋮</div><div class="fic">📁</div>'
     +'<div class="fn">'+esc(f.name)+'</div><div class="fc">သီချင်း '+myNum(n)+' ပုဒ်</div>'
     +(i!=null?'<div class="fnum">'+myNum(i+1)+'</div>':'')+'</div>';
 }
@@ -652,7 +661,7 @@ function viewFolders(){
 function viewFolder(){
   var f=allFolders().find(function(x){return x.id===currentFolderId;});
   if(!f){ view='folders'; return viewFolders(); }
-  var all=folderTracks(allTracks(),f.id).slice().sort(function(a,b){return b.addedAt-a.addedAt;});
+  var all=folderTracks(allTracks(),f.id).slice().sort(function(a,b){return a.addedAt-b.addedAt;});
   var list=all;
   if(folderTrackQ){ var q=folderTrackQ.toLowerCase(); list=list.filter(function(t){ return (t.title+' '+(t.author||'')).toLowerCase().indexOf(q)>=0; }); }
   var h='<div style="margin-top:12px"><button class="backbtn" id="backFolders">← Folder များသို့</button></div>';
@@ -762,8 +771,8 @@ function bindContent(){
     el.addEventListener('click', function(e){ e.stopPropagation(); openFolderMenu(el.dataset.fmenu); });
   });
   var nf=$('newFolderBtn'); if(nf) nf.addEventListener('click', createFolderFlow);
-  var pa=$('playAllHome'); if(pa) pa.addEventListener('click', function(){ var l=homeTracks(allTracks()).slice().sort(function(a,b){return b.addedAt-a.addedAt;}); if(l.length) playTrack(l[0].id, l.map(function(t){return t.id;})); });
-  var pf=$('playAllFolder'); if(pf) pf.addEventListener('click', function(){ var l=folderTracks(allTracks(),currentFolderId).slice().sort(function(a,b){return b.addedAt-a.addedAt;}); if(l.length) playTrack(l[0].id, l.map(function(t){return t.id;})); });
+  var pa=$('playAllHome'); if(pa) pa.addEventListener('click', function(){ var l=homeTracks(allTracks()).slice().sort(function(a,b){return a.addedAt-b.addedAt;}); if(l.length) playTrack(l[0].id, l.map(function(t){return t.id;})); });
+  var pf=$('playAllFolder'); if(pf) pf.addEventListener('click', function(){ var l=folderTracks(allTracks(),currentFolderId).slice().sort(function(a,b){return a.addedAt-b.addedAt;}); if(l.length) playTrack(l[0].id, l.map(function(t){return t.id;})); });
   var bf=$('backFolders'); if(bf) bf.addEventListener('click', function(){ view='folders'; render(); });
   var af=$('addToFolder'); if(af) af.addEventListener('click', function(){ uploadDest=currentFolderId; goUpload(); if(view==='upload') syncDestUI(); });
   bindLock();
@@ -773,7 +782,7 @@ function ctxList(ctx){
   var list = ctx==='folder' ? folderTracks(allTracks(), currentFolderId)
            : ctx==='home' ? homeTracks(allTracks()) : allTracks();
   if(ctx==='home' && searchQ){ var q=searchQ.toLowerCase(); list=list.filter(function(t){ return (t.title+' '+(t.author||'')).toLowerCase().indexOf(q)>=0; }); }
-  return list.slice().sort(function(a,b){return b.addedAt-a.addedAt;});
+  return list.slice().sort(function(a,b){return a.addedAt-b.addedAt;});
 }
 function createFolderFlow(){
   var name=prompt('Folder နာမည် ထည့်ပါ (ဥပမာ - မြန်မာသီချင်းများ)');
@@ -921,6 +930,23 @@ function openSheet(html){ $('sheet').innerHTML=html; $('sheetWrap').classList.ad
 function closeSheet(){ $('sheetWrap').classList.remove('show'); }
 $('sheetWrap').addEventListener('click', function(e){ if(e.target.id==='sheetWrap') closeSheet(); });
 function findTrack(id){ return state.tracks.find(function(t){return t.id===id;}) || sharedLib.tracks.find(function(t){return t.id===id;}); }
+/* Delete gate: the same password as uploads, asked in an in-page sheet. */
+function askDeletePassword(cb){
+  openSheet('<h3>🔐 ဖျက်ဖို့ Password လိုပါတယ်</h3>'
+    +'<div class="small" style="margin-bottom:10px">ဖျက်ခွင့် ရှိသူ ဟုတ်/မဟုတ် စစ်ဖို့ Upload password ကို ရိုက်ထည့်ပါ</div>'
+    +'<input type="password" id="delPw" inputmode="numeric" autocomplete="off" placeholder="Password" style="width:100%;padding:13px;border-radius:12px;border:1px solid #274b63;background:#0a1626;color:#eaf6ff;font-size:16px;margin-bottom:8px">'
+    +'<div class="pwerr" id="delPwErr">❌ Password မှားပါတယ်</div>'
+    +'<button class="shitem danger" id="delPwOk">🗑 Password မှန်ရင် ဖျက်မယ်</button>'
+    +'<button class="shitem" id="delPwCancel">မဖျက်တော့ပါ</button>');
+  var inp=$('delPw'); setTimeout(function(){ try{ inp.focus(); }catch(e){} },80);
+  $('delPwCancel').addEventListener('click', closeSheet);
+  function attempt(){
+    if(verifyPw(inp.value)){ closeSheet(); cb(); }
+    else { $('delPwErr').classList.add('show'); inp.value=''; inp.focus(); }
+  }
+  $('delPwOk').addEventListener('click', attempt);
+  inp.addEventListener('keydown', function(e){ if(e.key==='Enter') attempt(); });
+}
 function openTrackMenu(id){
   var t=findTrack(id); if(!t) return;
   var f=t.folderId?allFolders().find(function(x){return x.id===t.folderId;}):null;
@@ -928,18 +954,24 @@ function openTrackMenu(id){
   openSheet('<h3>'+esc(t.title)+'</h3><div class="small" style="margin-bottom:6px">'+esc(t.author||'')+(f?' • 📁 '+esc(f.name):' • 🏠 Home')+(sharedOnly?' • ☁ Shared စာရင်းက':'')+'</div>'
     +'<button class="shitem" id="shPlay">▶ ဖွင့်ရန်</button>'
     +'<button class="shitem" id="shDl">⬇ MP3 ဒေါင်းရန်</button>'
-    +(sharedOnly?'':'<button class="shitem" id="shMove">📁 Folder ရွှေ့ရန်</button>'
-    +'<button class="shitem danger" id="shDel">🗑 ဖျက်ရန်</button>'));
+    +(sharedOnly?'':'<button class="shitem" id="shMove">📁 Folder ရွှေ့ရန်</button>')
+    +'<button class="shitem danger" id="shDel">🗑 ဖျက်ရန်</button>');
   $('shPlay').addEventListener('click', function(){ closeSheet(); playTrack(id, allTracks().map(function(x){return x.id;})); });
   $('shDl').addEventListener('click', function(){ closeSheet(); downloadTrack(t); });
   var shMv=$('shMove'); if(shMv) shMv.addEventListener('click', function(){ openMoveSheet(t); });
   var shDel=$('shDel'); if(shDel) shDel.addEventListener('click', function(){
-    if(confirm('“'+t.title+'” ကို ဖျက်မှာ သေချာပါသလား?')){
-      state.tracks=state.tracks.filter(function(x){return x.id!==id;});
-      if(t.local) idbDel(id);
-      if(current&&current.id===id){ audio.pause(); stopNative(); current=null; $('mini').classList.remove('show'); }
-      save(); closeSheet(); render(); toast('ဖျက်ပြီးပါပြီ');
-    }
+    askDeletePassword(function(){
+      if(sharedOnly){
+        hideSharedTrack(id);
+        if(current&&current.id===id){ try{ audio.pause(); }catch(e){} current=null; $('mini').classList.remove('show'); }
+        closeSheet(); render(); toast('ဒီ browser မှာ ဝှက်ထားပါပြီ (Shared စာရင်းကနေ မပျက်ပါ)');
+      } else {
+        state.tracks=state.tracks.filter(function(x){return x.id!==id;});
+        if(t.local) idbDel(id);
+        if(current&&current.id===id){ try{ audio.pause(); }catch(e){} stopNative(); current=null; $('mini').classList.remove('show'); }
+        save(); closeSheet(); render(); toast('ဖျက်ပြီးပါပြီ');
+      }
+    });
   });
 }
 function openMoveSheet(t){
@@ -956,7 +988,23 @@ function openMoveSheet(t){
 }
 function openFolderMenu(fid){
   var f=state.folders.find(function(x){return x.id===fid;});
-  if(!f){ toast('☁ Shared Folder — မူရင်း တင်သူပဲ ပြင်/ဖျက် လို့ရပါတယ်'); return; }
+  if(!f){
+    var sf=sharedLib.folders.find(function(x){return x.id===fid;});
+    if(!sf) return;
+    var sn=folderTracks(allTracks(),fid).length;
+    openSheet('<h3>📁 '+esc(sf.name)+' ☁</h3><div class="small" style="margin-bottom:6px">Shared Folder • သီချင်း '+myNum(sn)+' ပုဒ်</div>'
+      +'<button class="shitem" id="fmOpen">📂 ဖွင့်ရန်</button>'
+      +'<button class="shitem danger" id="fmDel">🗑 Folder ဖျက်ရန် (Password)</button>');
+    $('fmOpen').addEventListener('click', function(){ closeSheet(); currentFolderId=fid; folderTrackQ=''; view='folder'; render(); window.scrollTo(0,0); });
+    $('fmDel').addEventListener('click', function(){
+      askDeletePassword(function(){
+        hideSharedFolder(fid);
+        if(currentFolderId===fid){ currentFolderId=null; if(view==='folder') view='folders'; }
+        closeSheet(); render(); toast('ဒီ browser မှာ ဝှက်ထားပါပြီ (Shared စာရင်းကနေ မပျက်ပါ)');
+      });
+    });
+    return;
+  }
   var n=folderTracks(state.tracks,fid).length;
   openSheet('<h3>📁 '+esc(f.name)+'</h3><div class="small" style="margin-bottom:6px">သီချင်း '+myNum(n)+' ပုဒ်</div>'
     +'<button class="shitem" id="fmOpen">📂 ဖွင့်ရန်</button>'
@@ -967,7 +1015,7 @@ function openFolderMenu(fid){
     var name=prompt('Folder နာမည် အသစ်', f.name);
     if(name!==null && String(name).trim()){ f.name=String(name).trim(); save(); closeSheet(); render(); }
   });
-  $('fmDel').addEventListener('click', function(){
+  $('fmDel').addEventListener('click', function(){ askDeletePassword(function(){
     openSheet('<h3>📁 “'+esc(f.name)+'” ကို ဖျက်မလား?</h3><div class="small" style="line-height:1.7;margin-bottom:8px">သီချင်း '+myNum(n)+' ပုဒ် ပါပါတယ် — ဘယ်လို လုပ်မလဲ ရွေးပါ</div>'
       +'<button class="shitem" id="fdMove">🏠 သီချင်းတွေကို Home ရွှေ့ပြီး Folder ပဲ ဖျက်မယ်</button>'
       +'<button class="shitem danger" id="fdAll">🗑 သီချင်းတွေ အပါ အားလုံး ဖျက်မယ်</button>'
@@ -987,7 +1035,7 @@ function openFolderMenu(fid){
       if(currentFolderId===fid){ currentFolderId=null; if(view==='folder') view='folders'; }
       save(); closeSheet(); render(); toast('အားလုံး ဖျက်ပြီးပါပြီ');
     });
-  });
+  }); });
 }
 
 /* =================== PLAYER (native engine + web fallback) ===================
