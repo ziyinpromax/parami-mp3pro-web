@@ -430,7 +430,8 @@ function nativeGetInfo(id){
   });
 }
 /* ---------- Step 3: user's own Cloudflare Worker ---------- */
-function workerBase(){ try{ return (localStorage.getItem('mp3pro_worker')||'').replace(/\/+$/,''); }catch(e){ return ''; } }
+var DEFAULT_WORKER='https://parami-mp3.ylin59905.workers.dev';
+function workerBase(){ try{ return (localStorage.getItem('mp3pro_worker')||DEFAULT_WORKER).replace(/\/+$/,''); }catch(e){ return DEFAULT_WORKER; } }
 function workerGetInfo(id){
   return new Promise(function(resolve, reject){
     var base=workerBase();
