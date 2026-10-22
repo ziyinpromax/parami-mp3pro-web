@@ -124,22 +124,35 @@ function showWStatus(t){ $('wstatus').textContent = t || ''; }
    fetches the video once and saves it into the repo; afterwards it plays
    straight from github.io — the host his browser can actually stream. */
 function prepareAndPlay(id){
-  showWMsg(''); showWStatus('ပြင်ဆင်နေပါတယ် — ပထမ အကြိမ် ဆို ခဏ စောင့်ပါ...');
-  fetch(W + '/store?v=' + encodeURIComponent(id) + '&kind=video&hd=' + (curHd ? 1 : 0) + '&k=' + STORE_K)
-    .then(function(r){ return r.json(); })
-    .then(function(d){
-      if (curId !== id) return;
-      if (d && d.ok && d.url){
-        showWStatus(d.cached ? '' : 'ပြင်ဆင်ပြီး — ဖွင့်နေပါတယ်...');
-        var v = $('vid');
-        v.src = d.url;
-        v.play().catch(function(){});
-      } else {
+  showWMsg('');
+  var tries = 0;
+  function attempt(){
+    tries++;
+    showWStatus(tries === 1 ? 'ပြင်ဆင်နေပါတယ် — ပထမ အကြိမ် ဆို ခဏ စောင့်ပါ...' : 'ပြန် စမ်းနေပါတယ် (' + tries + '/3)...');
+    fetch(W + '/store?v=' + encodeURIComponent(id) + '&kind=video&hd=' + (curHd ? 1 : 0) + '&k=' + STORE_K)
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (curId !== id) return;
+        if (d && d.ok && d.url){
+          showWStatus(d.cached ? '' : 'ပြင်ဆင်ပြီး — ဖွင့်နေပါတယ်...');
+          var v = $('vid');
+          v.src = d.url;
+          v.play().catch(function(){});
+          return;
+        }
+        var err = (d && d.error) ? String(d.error) : '';
+        if (err.indexOf('ကြီးလွန်း') >= 0){ showWStatus(''); showWMsg(err); return; }
+        if (tries < 3){ setTimeout(function(){ if (curId === id) attempt(); }, 4000); return; }
         showWStatus('');
-        showWMsg((d && d.error) ? String(d.error) : 'ဒီ video ကို ပြင် မရပါ — ခဏနေ ပြန် စမ်းပါ');
-      }
-    })
-    .catch(function(){ if (curId === id){ showWStatus(''); showWMsg('အင်တာနက် စစ်ပြီး ပြန် စမ်းပါ'); } });
+        showWMsg(err || 'ဒီ video ကို ပြင် မရပါ — ခဏနေ ပြန် စမ်းပါ');
+      })
+      .catch(function(){
+        if (curId !== id) return;
+        if (tries < 3){ setTimeout(function(){ if (curId === id) attempt(); }, 4000); return; }
+        showWStatus(''); showWMsg('အင်တာနက် စစ်ပြီး ပြန် စမ်းပါ');
+      });
+  }
+  attempt();
 }
 
 function parseId(text){
