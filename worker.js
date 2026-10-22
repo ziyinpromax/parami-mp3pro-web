@@ -314,6 +314,119 @@ async function ytSearch(q) {
   return dedupeMap(rends, 15);
 }
 
+/* /proxywatch?v=<id> — find a NON-Cloudflare media host for this video.
+   Media streamed from workers.dev fails in his browser while fetch()
+   calls succeed; the Invidious instances serve the same video from their
+   own hosts, and at least one such route (f5.si) has played on his phone.
+   The Worker asks several instances server-side and returns the first
+   muxed-stream URL it finds; the phone streams from THAT host. */
+const INVIDIOUS_HOSTS = ['invidious.f5.si', 'yewtu.be', 'invidious.nerdvpn.de', 'inv.tux.pizza', 'invidious.0011.lt', 'inv.us.projectsegfau.lt', 'invidious.jing.rocks', 'iv.datura.network'];
+
+async function fetchJsonTimeout(url, ms) {
+  const ctl = new AbortController();
+  const t = setTimeout(function () { ctl.abort(); }, ms);
+  try {
+    const r = await fetch(url, { signal: ctl.signal, headers: { 'User-Agent': BROWSER_UA } });
+    if (!r.ok) throw new Error('http ' + r.status);
+    return await r.json();
+  } finally { clearTimeout(t); }
+}
+
+async function invidiousStreamFor(host, id) {
+  const d = await fetchJsonTimeout('https://' + host + '/api/v1/videos/' + encodeURIComponent(id) + '?local=true', 7000);
+  const fs = (d && d.formatStreams) || [];
+  let pick = null;
+  for (const f of fs) { if (String(f.itag) === '18') { pick = f; break; } }
+  if (!pick) for (const f of fs) { if (String(f.itag) === '22') { pick = f; break; } }
+  if (!pick && fs.length) pick = fs[0];
+  if (!pick || !pick.url) throw new Error('no formatStreams');
+  let u = pick.url;
+  if (u.indexOf('/') === 0) u = 'https://' + host + u;
+  return { url: u, via: host };
+}
+
+async function handleProxyWatch(id) {
+  const settled = await Promise.allSettled(INVIDIOUS_HOSTS.map(function (h) { return invidiousStreamFor(h, id); }));
+  for (const r of settled) {
+    if (r.status === 'fulfilled' && r.value && r.value.url) {
+      return json({ ok: true, url: r.value.url, via: r.value.via });
+    }
+  }
+  return json({ ok: false, error: 'no proxy route available' }, 502);
+}
+
+/* /store?v=<id>&kind=video|audio[&hd=1]&k=<key> — the architecture that
+   finally plays on his phone: fetch the media ONCE here, save it as a file
+   in the site's GitHub repo, and let GitHub Pages serve it (media streamed
+   from workers.dev fails in his browser; the same file on github.io plays).
+   Needs the GH_TOKEN secret binding. Files are capped at 40 MB, which
+   covers songs and short/medium videos at 360p and ~1 h of audio. */
+const GH_REPO = 'ziyinpromax/parami-mp3pro-web';
+const PAGES_BASE = 'https://ziyinpromax.github.io/parami-mp3pro-web';
+const STORE_KEY = 'pm-store-7';
+const STORE_MAX = 40 * 1024 * 1024;
+
+async function ghApi(env, method, path, body) {
+  return fetch('https://api.github.com' + path, {
+    method: method,
+    headers: {
+      'Authorization': 'Bearer ' + env.GH_TOKEN,
+      'Accept': 'application/vnd.github+json',
+      'Content-Type': 'application/json',
+      'User-Agent': 'parami-worker',
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+}
+
+function bytesToB64(buf) {
+  const bytes = new Uint8Array(buf);
+  let bin = '';
+  const CH = 0x8000;
+  for (let i = 0; i < bytes.length; i += CH) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
+  }
+  return btoa(bin);
+}
+
+async function handleStore(env, url) {
+  const id = url.searchParams.get('v') || '';
+  if (!/^[\w-]{11}$/.test(id)) return json({ ok: false, error: 'bad video id' }, 400);
+  if (url.searchParams.get('k') !== STORE_KEY) return json({ ok: false, error: 'bad key' }, 403);
+  if (!env || !env.GH_TOKEN) return json({ ok: false, error: 'store not configured' }, 500);
+  const kind = url.searchParams.get('kind') === 'audio' ? 'audio' : 'video';
+  const hd = url.searchParams.get('hd') === '1';
+  const ext = kind === 'audio' ? '.m4a' : '.mp4';
+  const name = 'files/' + id + (kind === 'video' && hd ? '-hd' : '') + ext;
+  const fileUrl = PAGES_BASE + '/' + name;
+  try {
+    const head = await ghApi(env, 'GET', '/repos/' + GH_REPO + '/contents/' + name);
+    if (head.status === 200) return json({ ok: true, url: fileUrl, cached: true });
+    let fmt = null, ua = '';
+    for (let attempt = 0; attempt < 2 && !fmt; attempt++) {
+      const m = kind === 'audio' ? await mintAny(id) : await mintVideo(id, hd);
+      if (m) { fmt = m.format; ua = m.client.ua; }
+    }
+    if (!fmt) return json({ ok: false, error: 'YouTube ကနေ ဒီ video ကို ယူမရပါ' }, 502);
+    const up = await fetch(fmt.url, { headers: { 'User-Agent': ua } });
+    if (!up.ok) return json({ ok: false, error: 'media fetch HTTP ' + up.status }, 502);
+    const buf = await up.arrayBuffer();
+    if (buf.byteLength > STORE_MAX) return json({ ok: false, error: 'ဖိုင် ကြီးလွန်းပါတယ် (' + Math.round(buf.byteLength / 1048576) + ' MB > 40 MB)' }, 413);
+    if (buf.byteLength < 10000) return json({ ok: false, error: 'media blocked' }, 502);
+    const put = await ghApi(env, 'PUT', '/repos/' + GH_REPO + '/contents/' + name, {
+      message: 'store ' + id, content: bytesToB64(buf),
+    });
+    if (put.status !== 200 && put.status !== 201) {
+      const re = await ghApi(env, 'GET', '/repos/' + GH_REPO + '/contents/' + name);
+      if (re.status !== 200) return json({ ok: false, error: 'github upload HTTP ' + put.status }, 502);
+    }
+    try { await ghApi(env, 'POST', '/repos/' + GH_REPO + '/pages/builds'); } catch (e) {}
+    return json({ ok: true, url: fileUrl, cached: false, bytes: buf.byteLength });
+  } catch (e) {
+    return json({ ok: false, error: String(e) }, 500);
+  }
+}
+
 /* /suggest?q=<text> — type-ahead suggestions (YouTube's suggest service). */
 async function handleSuggest(q) {
   try {
@@ -449,7 +562,7 @@ async function handleStream(request, url) {
 }
 
 export default {
-  async fetch(request) {
+  async fetch(request, env) {
     const url = new URL(request.url);
     if (request.method === 'OPTIONS') return new Response(null, { headers: CORS });
     try {
@@ -477,6 +590,14 @@ export default {
         if (!/^[\w-]{11}$/.test(v)) return json({ ok: false, error: 'bad video id' }, 400);
         return await handleNext(v);
       }
+      if (url.pathname === '/proxywatch') {
+        const v = url.searchParams.get('v') || '';
+        if (!/^[\w-]{11}$/.test(v)) return json({ ok: false, error: 'bad video id' }, 400);
+        return await handleProxyWatch(v);
+      }
+      if (url.pathname === '/store') {
+        return await handleStore(env, url);
+      }
       if (url.pathname === '/suggest') {
         const q = (url.searchParams.get('q') || '').trim();
         if (!q) return json({ ok: true, suggestions: [] });
@@ -487,7 +608,7 @@ export default {
         if (!q) return json({ ok: false, error: 'empty query' }, 400);
         return await handleSearch(q);
       }
-      return new Response('Parami Mp3 Pro Worker OK v5', { headers: Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, CORS) });
+      return new Response('Parami Mp3 Pro Worker OK v7', { headers: Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, CORS) });
     } catch (e) {
       return json({ ok: false, error: String(e && e.message ? e.message : e) }, 500);
     }
