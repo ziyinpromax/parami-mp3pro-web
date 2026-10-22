@@ -126,6 +126,7 @@ var $ = function(id){ return document.getElementById(id); };
 var curId = '', curHd = false, curCat = 'home', storeRetries = 0, curDur = 0, reStoreTried = false;
 var queue = [], queueIdx = -1, lastGrid = [], relItems = [];
 var bgMode = false, pendingSeek = 0, audioDeadId = '';
+var autoClock = null, autoTries = 0;
 var STORE_K = 'pm-store-7';
 function showWStatus(t){ $('wstatus').textContent = t || ''; }
 /* Playback source = a file stored on THIS site (GitHub Pages). The Worker
@@ -147,7 +148,9 @@ function prepareAndPlay(id){
         if (curId !== id) return;
         if (d && d.ok && d.url){
           showWStatus(d.cached ? '' : 'ပြင်ဆင်ပြီး — ဖွင့်နေပါတယ်...');
+          if(autoClock){ clearTimeout(autoClock); autoClock = null; }
           var v = $('vid');
+          try{ $('aud').pause(); }catch(e){}
           v.src = d.url;
           setMediaSession(id);
           if(pendingSeek > 0){
@@ -160,12 +163,26 @@ function prepareAndPlay(id){
         var err = (d && d.error) ? String(d.error) : '';
         if (!bigMode && err.indexOf('ကြီးလွန်း') >= 0){ bigMode = true; tries = 0; attempt(); return; }
         if (tries < 3){ setTimeout(function(){ if (curId === id) attempt(); }, 4000); return; }
+        if (autoTries < 2){
+          autoTries++;
+          showWStatus('');
+          showWMsg('YouTube က အခု ခဏ ပိတ်ထားတယ် — 20 စက္ကန့် နေ အလိုအလျောက် ပြန် စမ်းပါမယ် (' + autoTries + '/2)');
+          autoClock = setTimeout(function(){ autoClock = null; if (curId === id && $('viewWatch').style.display !== 'none') prepareAndPlay(id); }, 20000);
+          return;
+        }
         showWStatus('');
         showWMsg(err || 'ဒီ video ကို ပြင် မရပါ — ခဏနေ ပြန် စမ်းပါ');
       })
       .catch(function(){
         if (curId !== id) return;
         if (tries < 3){ setTimeout(function(){ if (curId === id) attempt(); }, 4000); return; }
+        if (autoTries < 2){
+          autoTries++;
+          showWStatus('');
+          showWMsg('အင်တာနက်/YouTube ခဏ ပိတ်နေတယ် — 20 စက္ကန့် နေ အလိုအလျောက် ပြန် စမ်းပါမယ် (' + autoTries + '/2)');
+          autoClock = setTimeout(function(){ autoClock = null; if (curId === id && $('viewWatch').style.display !== 'none') prepareAndPlay(id); }, 20000);
+          return;
+        }
         showWStatus(''); showWMsg('အင်တာနက် စစ်ပြီး ပြန် စမ်းပါ');
       });
   }
@@ -187,6 +204,16 @@ function setMediaSession(id){
   } catch(e){}
 }
 
+var audPrimed = false;
+function primeAud(){
+  if(audPrimed) return; audPrimed = true;
+  var a = $('aud'); if(!a) return;
+  try {
+    a.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+    var pr = a.play();
+    if(pr && pr.then) pr.then(function(){ try{ a.pause(); a.removeAttribute('src'); a.load(); }catch(e){} }, function(){});
+  } catch(e){}
+}
 function prepareAudio(id, seekTo){
   var tries = 0;
   showWStatus('🎧 အသံ ပြင်ဆင်နေပါတယ်...');
@@ -200,18 +227,26 @@ function prepareAudio(id, seekTo){
           var a = $('aud');
           a.src = d.url;
           setMediaSession(id);
+          var sk = seekTo;
+          if(sk < 0){ sk = 0; try{ sk = $('vid').currentTime || 0; }catch(e){} }
           a.addEventListener('loadedmetadata', function h(){
             a.removeEventListener('loadedmetadata', h);
-            if(seekTo > 0){ try{ a.currentTime = Math.min(seekTo, (a.duration || seekTo) - 1); }catch(e){} }
+            if(sk > 0){ try{ a.currentTime = Math.min(sk, (a.duration || sk) - 1); }catch(e){} }
           });
-          a.play().catch(function(){});
-          showWStatus('🎧 Background play — screen ပိတ်ထားလို့ ရပါတယ်');
+          var ppr = null;
+          try{ ppr = a.play(); }catch(e){}
+          if(ppr && ppr.then){
+            ppr.then(function(){ showWStatus('🎧 Background play — screen ပိတ်ထားလို့ ရပါတယ်'); try{ $('vid').pause(); }catch(e){} },
+                     function(){ showWStatus('🎧 အသံ ရပြီ — အောက်က အသံ player မှာ ▶ နှိပ်ပါ (video လည်း ဆက် လာနေပါတယ်)'); });
+          } else { showWStatus('🎧 Background play — screen ပိတ်ထားလို့ ရပါတယ်'); try{ $('vid').pause(); }catch(e){} }
           return;
         }
         if(tries < 3){ setTimeout(function(){ if(curId === id) attempt(); }, 4000); return; }
         audioDeadId = id;
         showWStatus('');
-        showWMsg('ဒီ video အတွက် 🎧 Background play မရပါ (အသံဖိုင် ကြီးလွန်း/မရ) — video အဖြစ် ပြန် ဖွင့်ပေးထားပါတယ်');
+        var vv = $('vid');
+        if(vv && vv.src && !vv.paused){ bgMode = false; $('btnBg').className = 'chip'; showWMsg('ဒီ video အတွက် 🎧 Background play မရပါ — video အတိုင်း ဆက် ကြည့်ပါ'); return; }
+        showWMsg('ဒီ video အတွက် 🎧 Background play မရပါ — video အဖြစ် ပြန် ဖွင့်ပေးထားပါတယ်');
         prepareAndPlay(id);
       })
       .catch(function(){
@@ -219,6 +254,8 @@ function prepareAudio(id, seekTo){
         if(tries < 3){ setTimeout(function(){ if(curId === id) attempt(); }, 4000); return; }
         audioDeadId = id;
         showWStatus('');
+        var vv2 = $('vid');
+        if(vv2 && vv2.src && !vv2.paused){ bgMode = false; $('btnBg').className = 'chip'; return; }
         prepareAndPlay(id);
       });
   })();
@@ -322,6 +359,12 @@ function showView(which){
 
 function openWatch(id, title, author, keepHd, dur){
   curId = id; storeRetries = 0; reStoreTried = false; curDur = dur || 0; audioDeadId = '';
+  autoTries = 0;
+  if(autoClock){ clearTimeout(autoClock); autoClock = null; }
+  primeAud();
+  var v0 = $('vid');
+  try{ v0.pause(); v0.poster = 'https://i.ytimg.com/vi/' + id + '/hqdefault.jpg'; v0.removeAttribute('src'); v0.load(); }catch(e){}
+  if(!bgMode){ var a0 = $('aud'); try{ a0.pause(); a0.removeAttribute('src'); a0.load(); }catch(e){} }
   if(!keepHd) curHd = false;
   showWMsg(''); showWStatus('');
   showView('watch');
@@ -384,14 +427,12 @@ $('btnBg').onclick = function(){
   $('btnBg').className = 'chip' + (bgMode ? ' on' : '');
   if(!curId) return;
   if(bgMode){
-    var t = 0; try{ t = $('vid').currentTime || 0; }catch(e){}
-    try{ $('vid').pause(); }catch(e){}
-    prepareAudio(curId, t);
+    showWStatus('🎧 အသံ ပြင်ဆင်နေပါတယ် — video ဆက် လာနေပါမယ်...');
+    prepareAudio(curId, -1);
   } else {
     var t2 = 0; try{ t2 = $('aud').currentTime || 0; }catch(e){}
-    try{ $('aud').pause(); }catch(e){}
     pendingSeek = t2;
-    showWStatus('');
+    showWStatus('🎬 Video ပြင်ဆင်နေပါတယ် — အသံ ဆက် လာနေပါမယ်...');
     prepareAndPlay(curId);
   }
 };
