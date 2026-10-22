@@ -192,7 +192,7 @@ function prepareAudio(id, seekTo){
   showWStatus('🎧 အသံ ပြင်ဆင်နေပါတယ်...');
   (function attempt(){
     tries++;
-    fetch(W + '/store?v=' + encodeURIComponent(id) + '&kind=audio&k=' + STORE_K)
+    fetch(W + (curDur >= 600 ? '/storebig' : '/store') + '?v=' + encodeURIComponent(id) + '&kind=audio&k=' + STORE_K)
       .then(function(r){ return r.json(); })
       .then(function(d){
         if(curId !== id) return;
