@@ -117,7 +117,7 @@ var DEFAULT_WORKER = 'https://parami-mp3.ylin59905.workers.dev';
 function workerBase(){ try{ return (localStorage.getItem('mp3pro_worker')||DEFAULT_WORKER).replace(/\/+$/,''); }catch(e){ return DEFAULT_WORKER; } }
 var W = workerBase();
 var $ = function(id){ return document.getElementById(id); };
-var curId = '', curHd = false, curCat = 'home', storeRetries = 0;
+var curId = '', curHd = false, curCat = 'home', storeRetries = 0, curDur = 0;
 var STORE_K = 'pm-store-7';
 function showWStatus(t){ $('wstatus').textContent = t || ''; }
 /* Playback source = a file stored on THIS site (GitHub Pages). The Worker
@@ -126,10 +126,13 @@ function showWStatus(t){ $('wstatus').textContent = t || ''; }
 function prepareAndPlay(id){
   showWMsg('');
   var tries = 0;
+  var bigMode = (curDur >= 600);
   function attempt(){
     tries++;
-    showWStatus(tries === 1 ? 'ပြင်ဆင်နေပါတယ် — ပထမ အကြိမ် ဆို ခဏ စောင့်ပါ...' : 'ပြန် စမ်းနေပါတယ် (' + tries + '/3)...');
-    fetch(W + '/store?v=' + encodeURIComponent(id) + '&kind=video&hd=' + (curHd ? 1 : 0) + '&k=' + STORE_K)
+    showWStatus(tries === 1
+      ? (bigMode ? 'ဖိုင်ကြီး — ပြင်ဆင်ချိန် ၁-၃ မိနစ် ကြာနိုင်ပါတယ်...' : 'ပြင်ဆင်နေပါတယ် — ပထမ အကြိမ် ဆို ခဏ စောင့်ပါ...')
+      : 'ပြန် စမ်းနေပါတယ် (' + tries + '/3)...');
+    fetch(W + (bigMode ? '/storebig' : '/store') + '?v=' + encodeURIComponent(id) + '&kind=video&hd=' + (curHd ? 1 : 0) + '&k=' + STORE_K)
       .then(function(r){ return r.json(); })
       .then(function(d){
         if (curId !== id) return;
@@ -141,7 +144,7 @@ function prepareAndPlay(id){
           return;
         }
         var err = (d && d.error) ? String(d.error) : '';
-        if (err.indexOf('ကြီးလွန်း') >= 0){ showWStatus(''); showWMsg(err); return; }
+        if (!bigMode && err.indexOf('ကြီးလွန်း') >= 0){ bigMode = true; tries = 0; attempt(); return; }
         if (tries < 3){ setTimeout(function(){ if (curId === id) attempt(); }, 4000); return; }
         showWStatus('');
         showWMsg(err || 'ဒီ video ကို ပြင် မရပါ — ခဏနေ ပြန် စမ်းပါ');
@@ -185,7 +188,7 @@ function cardEl(it){
   var t = document.createElement('div'); t.className = 't'; t.textContent = it.title || '';
   var a = document.createElement('div'); a.className = 'a'; a.textContent = it.author || '';
   div.appendChild(th); div.appendChild(t); div.appendChild(a);
-  div.onclick = function(){ openWatch(it.id, it.title, it.author); };
+  div.onclick = function(){ openWatch(it.id, it.title, it.author, false, it.duration); };
   return div;
 }
 function rowEl(it){
@@ -200,7 +203,7 @@ function rowEl(it){
   a.textContent = (it.author || '') + (it.duration ? ' • ' + fmtDur(it.duration) : '');
   mid.appendChild(t); mid.appendChild(a);
   div.appendChild(img); div.appendChild(mid);
-  div.onclick = function(){ openWatch(it.id, it.title, it.author); };
+  div.onclick = function(){ openWatch(it.id, it.title, it.author, false, it.duration); };
   return div;
 }
 function renderGrid(items){
@@ -243,8 +246,8 @@ function showView(which){
   if(which === 'home'){ var v = $('vid'); try{ v.pause(); v.removeAttribute('src'); v.load(); }catch(e){} }
 }
 
-function openWatch(id, title, author, keepHd){
-  curId = id; storeRetries = 0;
+function openWatch(id, title, author, keepHd, dur){
+  curId = id; storeRetries = 0; curDur = dur || 0;
   if(!keepHd) curHd = false;
   showWMsg(''); showWStatus('');
   showView('watch');
@@ -281,12 +284,12 @@ document.querySelectorAll('#chips .chip').forEach(function(c){
   c.onclick = function(){ loadFeed(c.getAttribute('data-cat')); };
 });
 $('backBtn').onclick = function(){ showView('home'); };
-$('chipSd').onclick = function(){ if(curHd){ curHd = false; $('chipSd').className='chip on'; $('chipHd').className='chip'; if(curId) openWatch(curId, $('ptitle').textContent, $('pauthor').textContent, true); } };
-$('chipHd').onclick = function(){ if(!curHd){ curHd = true; $('chipHd').className='chip on'; $('chipSd').className='chip'; if(curId) openWatch(curId, $('ptitle').textContent, $('pauthor').textContent, true); } };
+$('chipSd').onclick = function(){ if(curHd){ curHd = false; $('chipSd').className='chip on'; $('chipHd').className='chip'; if(curId) openWatch(curId, $('ptitle').textContent, $('pauthor').textContent, true, curDur); } };
+$('chipHd').onclick = function(){ if(!curHd){ curHd = true; $('chipHd').className='chip on'; $('chipSd').className='chip'; if(curId) openWatch(curId, $('ptitle').textContent, $('pauthor').textContent, true, curDur); } };
 $('vid').addEventListener('error', function(){
   if(!curId || $('viewWatch').style.display === 'none') return;
   var src = $('vid').currentSrc || $('vid').src || '';
-  if(src.indexOf('/files/') >= 0 && storeRetries < 7){
+  if((src.indexOf('/files/') >= 0 || src.indexOf('releases/download') >= 0) && storeRetries < 7){
     storeRetries++;
     showWStatus('ဖိုင် တက်နေပါတယ် — ပြန် စမ်းနေပါတယ် (' + storeRetries + ')...');
     setTimeout(function(){
@@ -317,7 +320,7 @@ function renderSuggest(v, items){
     row.className = 'sug';
     row.textContent = '🎵 ' + (it.title || '');
     if(it.author){ var sm = document.createElement('small'); sm.textContent = it.author; row.appendChild(sm); }
-    row.onclick = function(){ hideSuggest(); $('q').value = it.title || ''; openWatch(it.id, it.title, it.author); };
+    row.onclick = function(){ hideSuggest(); $('q').value = it.title || ''; openWatch(it.id, it.title, it.author, false, it.duration); };
     box.appendChild(row);
   });
   box.style.display = 'block';
