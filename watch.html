@@ -237,15 +237,16 @@ function prepareAudio(id, seekTo){
           try{ ppr = a.play(); }catch(e){}
           if(ppr && ppr.then){
             ppr.then(function(){ showWStatus('🎧 Background play — screen ပိတ်ထားလို့ ရပါတယ်'); try{ $('vid').pause(); }catch(e){} },
-                     function(){ showWStatus('🎧 အသံ ရပြီ — အောက်က အသံ player မှာ ▶ နှိပ်ပါ (video လည်း ဆက် လာနေပါတယ်)'); });
+                     function(){ var ae = $('aud'); ae.style.display = 'block'; ae.setAttribute('controls', ''); showWStatus('🎧 အသံ ရပြီ — အောက်က အသံ player မှာ ▶ နှိပ်ပါ (video လည်း ဆက် လာနေပါတယ်)'); });
           } else { showWStatus('🎧 Background play — screen ပိတ်ထားလို့ ရပါတယ်'); try{ $('vid').pause(); }catch(e){} }
           return;
         }
         if(tries < 3){ setTimeout(function(){ if(curId === id) attempt(); }, 4000); return; }
         audioDeadId = id;
         showWStatus('');
+        bgMode = false; $('btnBg').className = 'chip';
         var vv = $('vid');
-        if(vv && vv.src && !vv.paused){ bgMode = false; $('btnBg').className = 'chip'; showWMsg('ဒီ video အတွက် 🎧 Background play မရပါ — video အတိုင်း ဆက် ကြည့်ပါ'); return; }
+        if(vv && vv.src && !vv.paused){ showWMsg('ဒီ video အတွက် 🎧 Background play မရပါ — video အတိုင်း ဆက် ကြည့်ပါ'); return; }
         showWMsg('ဒီ video အတွက် 🎧 Background play မရပါ — video အဖြစ် ပြန် ဖွင့်ပေးထားပါတယ်');
         prepareAndPlay(id);
       })
@@ -254,8 +255,9 @@ function prepareAudio(id, seekTo){
         if(tries < 3){ setTimeout(function(){ if(curId === id) attempt(); }, 4000); return; }
         audioDeadId = id;
         showWStatus('');
+        bgMode = false; $('btnBg').className = 'chip';
         var vv2 = $('vid');
-        if(vv2 && vv2.src && !vv2.paused){ bgMode = false; $('btnBg').className = 'chip'; return; }
+        if(vv2 && vv2.src && !vv2.paused){ return; }
         prepareAndPlay(id);
       });
   })();
@@ -354,7 +356,7 @@ function showView(which){
   $('viewHome').style.display = which === 'home' ? 'block' : 'none';
   $('viewWatch').style.display = which === 'watch' ? 'block' : 'none';
   $('chips').style.display = which === 'home' ? 'flex' : 'none';
-  if(which === 'home'){ var v = $('vid'); try{ v.pause(); v.removeAttribute('src'); v.load(); }catch(e){} var a2 = $('aud'); try{ a2.pause(); a2.removeAttribute('src'); a2.load(); }catch(e){} }
+  if(which === 'home'){ var v = $('vid'); try{ v.pause(); v.removeAttribute('src'); v.load(); }catch(e){} var a2 = $('aud'); try{ a2.pause(); a2.removeAttribute('src'); a2.load(); a2.style.display = 'none'; a2.removeAttribute('controls'); }catch(e){} }
 }
 
 function openWatch(id, title, author, keepHd, dur){
@@ -363,8 +365,10 @@ function openWatch(id, title, author, keepHd, dur){
   if(autoClock){ clearTimeout(autoClock); autoClock = null; }
   primeAud();
   var v0 = $('vid');
-  try{ v0.pause(); v0.poster = 'https://i.ytimg.com/vi/' + id + '/hqdefault.jpg'; v0.removeAttribute('src'); v0.load(); }catch(e){}
-  if(!bgMode){ var a0 = $('aud'); try{ a0.pause(); a0.removeAttribute('src'); a0.load(); }catch(e){} }
+  /* keep the old src until the new store succeeds — so a failed tap never
+     blanks a playing video (title updates instantly, picture follows) */
+  try{ v0.pause(); v0.poster = 'https://i.ytimg.com/vi/' + id + '/hqdefault.jpg'; }catch(e){}
+  if(!bgMode){ var a0 = $('aud'); try{ a0.pause(); a0.removeAttribute('src'); a0.load(); a0.style.display = 'none'; a0.removeAttribute('controls'); }catch(e){} }
   if(!keepHd) curHd = false;
   showWMsg(''); showWStatus('');
   showView('watch');
