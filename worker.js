@@ -40,6 +40,16 @@ const CLIENTS = [
     ua: 'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)',
     client: { clientName: 'IOS', clientVersion: '20.10.4', deviceMake: 'Apple', deviceModel: 'iPhone16,2', osName: 'iPhone', osVersion: '18.3.2.22D82', platform: 'MOBILE', hl: 'en', gl: 'US' },
   },
+  {
+    name: 'TV', ver: '7.20250219.14.00', num: '7', key: '',
+    ua: 'Mozilla/5.0 (PlayStation; PlayStation 5/2.26) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.2 Safari/605.1.15',
+    client: { clientName: 'TVHTML5', clientVersion: '7.20250219.14.00', platform: 'TV', hl: 'en', gl: 'US' },
+  },
+  {
+    name: 'WEB_EMBED', ver: '1.20240528.01.00', num: '56', key: '',
+    ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    client: { clientName: 'WEB_EMBEDDED_PLAYER', clientVersion: '1.20240528.01.00', platform: 'DESKTOP', hl: 'en', gl: 'US' },
+  },
 ];
 
 function b64urlEncode(str) {
@@ -70,7 +80,7 @@ function pickAudio(formats) {
 /* Ask the InnerTube player API (with this request's own egress IP).
    Throws on any failure so callers can race clients. */
 async function playerApiFull(id, c) {
-  const r = await fetch('https://www.youtube.com/youtubei/v1/player?key=' + c.key + '&prettyPrint=false', {
+  const r = await fetch('https://www.youtube.com/youtubei/v1/player?key=' + (c.key || WEB_KEY) + '&prettyPrint=false', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -126,15 +136,21 @@ function pickProgressive(formats, hd) {
 /* Mint a muxed video format: ask all three clients in parallel and take
    the first (ANDROID first — it carries the muxed formats most often)
    whose response actually has one. */
+let lastMintErrors = [];
 async function mintVideo(id, hd) {
+  lastMintErrors = [];
   const settled = await Promise.allSettled(CLIENTS.map(function (c) { return playerApiRaw(id, c); }));
-  const order = [1, 0, 2];
+  const order = [1, 3, 0, 4, 2];
   for (const i of order) {
     const r = settled[i];
-    if (r.status !== 'fulfilled') continue;
+    if (r.status !== 'fulfilled') {
+      lastMintErrors.push(CLIENTS[i].name + ': ' + (r.reason && r.reason.message ? r.reason.message : String(r.reason)));
+      continue;
+    }
     const sd = r.value.streamingData || {};
     const f = pickProgressive(sd.formats, hd);
     if (f) return { data: r.value, format: f, client: CLIENTS[i] };
+    lastMintErrors.push(CLIENTS[i].name + ': no muxed format');
   }
   return null;
 }
@@ -146,7 +162,9 @@ async function mintAny(id) {
   try {
     return await Promise.any([playerApi(id, CLIENTS[0]), playerApi(id, CLIENTS[1])]);
   } catch (e) {
-    try { return await playerApi(id, CLIENTS[2]); } catch (e2) { return null; }
+    try { return await playerApi(id, CLIENTS[2]); } catch (e2) {
+      try { return await playerApi(id, CLIENTS[3]); } catch (e3) { return null; }
+    }
   }
 }
 
@@ -402,17 +420,18 @@ async function handleStore(env, url) {
   try {
     const head = await ghApi(env, 'GET', '/repos/' + GH_REPO + '/contents/' + name);
     if (head.status === 200) return json({ ok: true, url: fileUrl, cached: true });
-    let fmt = null, ua = '';
-    for (let attempt = 0; attempt < 2 && !fmt; attempt++) {
+    let buf = null, lastErr = '';
+    for (let attempt = 0; attempt < 4 && !buf; attempt++) {
       const m = kind === 'audio' ? await mintAny(id) : await mintVideo(id, hd);
-      if (m) { fmt = m.format; ua = m.client.ua; }
+      if (!m) { lastErr = lastMintErrors.length ? lastMintErrors.join('; ') : 'mint failed'; continue; }
+      const up = await fetch(m.format.url, { headers: { 'User-Agent': m.client.ua } });
+      if (!up.ok) { lastErr = 'media HTTP ' + up.status; continue; }
+      const b = await up.arrayBuffer();
+      if (b.byteLength > STORE_MAX) return json({ ok: false, error: 'ဖိုင် ကြီးလွန်းပါတယ် (' + Math.round(b.byteLength / 1048576) + ' MB > 40 MB)' }, 413);
+      if (b.byteLength < 10000) { lastErr = 'media too small'; continue; }
+      buf = b;
     }
-    if (!fmt) return json({ ok: false, error: 'YouTube ကနေ ဒီ video ကို ယူမရပါ' }, 502);
-    const up = await fetch(fmt.url, { headers: { 'User-Agent': ua } });
-    if (!up.ok) return json({ ok: false, error: 'media fetch HTTP ' + up.status }, 502);
-    const buf = await up.arrayBuffer();
-    if (buf.byteLength > STORE_MAX) return json({ ok: false, error: 'ဖိုင် ကြီးလွန်းပါတယ် (' + Math.round(buf.byteLength / 1048576) + ' MB > 40 MB)' }, 413);
-    if (buf.byteLength < 10000) return json({ ok: false, error: 'media blocked' }, 502);
+    if (!buf) return json({ ok: false, error: 'YouTube ကနေ ဒီ video ကို ယူမရပါ [' + lastErr + ']' }, 502);
     const put = await ghApi(env, 'PUT', '/repos/' + GH_REPO + '/contents/' + name, {
       message: 'store ' + id, content: bytesToB64(buf),
     });
@@ -608,7 +627,7 @@ export default {
         if (!q) return json({ ok: false, error: 'empty query' }, 400);
         return await handleSearch(q);
       }
-      return new Response('Parami Mp3 Pro Worker OK v7', { headers: Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, CORS) });
+      return new Response('Parami Mp3 Pro Worker OK v8', { headers: Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, CORS) });
     } catch (e) {
       return json({ ok: false, error: String(e && e.message ? e.message : e) }, 500);
     }
