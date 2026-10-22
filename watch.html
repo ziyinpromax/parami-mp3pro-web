@@ -360,7 +360,7 @@ function showView(which){
 }
 
 function openWatch(id, title, author, keepHd, dur){
-  curId = id; storeRetries = 0; reStoreTried = false; curDur = dur || 0; audioDeadId = '';
+  curId = id; storeRetries = 0; reStoreTried = false; curDur = dur || 0; audioDeadId = ''; pendingSeek = 0;
   autoTries = 0;
   if(autoClock){ clearTimeout(autoClock); autoClock = null; }
   primeAud();
@@ -458,9 +458,12 @@ $('vid').addEventListener('error', function(){
   if((src.indexOf('/files/') >= 0 || src.indexOf('releases/download') >= 0 || src.indexOf('/b2play') >= 0 || src.indexOf('/tgplay') >= 0) && storeRetries < 7){
     storeRetries++;
     showWStatus('ဖိုင် တက်နေပါတယ် — ပြန် စမ်းနေပါတယ် (' + storeRetries + ')...');
+    var eid = curId;
     setTimeout(function(){
-      if(!curId) return;
+      if(!curId || curId !== eid) return;
       var v = $('vid');
+      var now = v.currentSrc || v.src || '';
+      if(now && now !== src) return;
       v.src = src; v.load(); v.play().catch(function(){});
     }, 8000);
     return;
