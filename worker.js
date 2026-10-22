@@ -530,8 +530,9 @@ async function handleStoreBigB2(env, url) {
   const name = id + (hd ? '-hd' : '') + '.mp4';
   const dlUrl = url.origin + '/b2play?name=' + encodeURIComponent(name) + '&k=' + STORE_KEY;
   try {
-    const probe = await b2Req(env, 'HEAD', name, '', null, EMPTY_SHA);
-    if (probe.ok) return json({ ok: true, url: dlUrl, cached: true });
+    const signedProbe = await b2PresignGet(env, name, 120);
+    const probe = await fetch(signedProbe, { method: 'GET', headers: { 'Range': 'bytes=0-0' } });
+    if (probe.status === 200 || probe.status === 206) return json({ ok: true, url: dlUrl, cached: true });
     let lastErr = '';
     for (let attempt = 0; attempt < 3; attempt++) {
       const m = await mintVideo(id, hd);
@@ -1005,7 +1006,7 @@ export default {
         if (!q) return json({ ok: false, error: 'empty query' }, 400);
         return await handleSearch(q);
       }
-      return new Response('Parami Mp3 Pro Worker OK v11.1', { headers: Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, CORS) });
+      return new Response('Parami Mp3 Pro Worker OK v11.3', { headers: Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, CORS) });
     } catch (e) {
       return json({ ok: false, error: String(e && e.message ? e.message : e) }, 500);
     }
