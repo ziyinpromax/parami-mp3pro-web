@@ -1206,6 +1206,25 @@ async function startNativeQueue(q){
   engine='web';
   await webPlay(current);
 }
+var stallTimer=null;
+function healStuck(t){
+  if(retrying || t.local) return;
+  retrying=true;
+  t.audioUrl=''; t.expiresAt=0;
+  ensureFreshUrl(t).then(function(){
+    if(current!==t) return;
+    audio.src=t.audioUrl;
+    return audio.play();
+  }).catch(function(){});
+}
+function armStallWatch(t){
+  if(stallTimer){ clearTimeout(stallTimer); stallTimer=null; }
+  stallTimer=setTimeout(function(){
+    stallTimer=null;
+    if(current!==t || t.local) return;
+    if(!audio.paused && audio.readyState<3 && audio.currentTime<0.5) healStuck(t);
+  }, 15000);
+}
 async function webPlay(t){
   try{
     if(t.local){
@@ -1218,6 +1237,7 @@ async function webPlay(t){
     }
     await audio.play();
     playErrCount[t.id]=0;
+    if(!t.local) armStallWatch(t);
   }catch(e){
     if(!t.local && !retrying){ retrying=true;
       try{ t.audioUrl=''; t.expiresAt=0; await ensureFreshUrl(t); audio.src=t.audioUrl; await audio.play(); return; }catch(e2){}
