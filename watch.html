@@ -23,6 +23,14 @@
   input[type=text]:focus { border-color: #22d3ee; }
   button.go { padding: 0 16px; border: 0; border-radius: 999px; font-size: 15px; font-weight: 700;
     color: #06121f; background: linear-gradient(90deg,#22d3ee,#a78bfa); cursor: pointer; }
+  #suggest { display: none; margin-top: 8px; border-radius: 14px; overflow: hidden;
+    border: 1px solid #ffffff1c; background: #0d0e28; }
+  .sug { padding: 12px 14px; font-size: 14px; cursor: pointer; border-top: 1px solid #ffffff10;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sug:first-child { border-top: 0; }
+  .sug:active { background: #ffffff12; }
+  .sug small { color: #aab; margin-left: 6px; }
+  .sug.search-row { color: #7ee7fc; font-weight: 600; }
   .chips { display: flex; gap: 8px; overflow-x: auto; padding: 10px 12px 2px; scrollbar-width: none; }
   .chips::-webkit-scrollbar { display: none; }
   .chip { flex: none; padding: 7px 14px; border-radius: 999px; border: 1px solid #2dd4ee55;
@@ -67,6 +75,7 @@
     <input type="text" id="q" placeholder="ရှာရန် (သို့) YouTube link ထည့်ပါ" autocomplete="off">
     <button class="go" id="goBtn">ရှာ</button>
   </div>
+  <div id="suggest"></div>
 </header>
 
 <div class="chips" id="chips">
@@ -199,6 +208,7 @@ function showView(which){
 
 function openWatch(id, title, author){
   curId = id;
+  vidFallbackTried = false;
   showWMsg('');
   showView('watch');
   $('ptitle').textContent = title || '';
@@ -221,6 +231,7 @@ function openWatch(id, title, author){
 }
 
 function go(){
+  hideSuggest();
   var v = $('q').value.trim();
   if(!v) return;
   var id = parseId(v);
@@ -236,10 +247,76 @@ $('backBtn').onclick = function(){ showView('home'); };
 $('chipSd').onclick = function(){ if(curHd){ curHd = false; $('chipSd').className='chip on'; $('chipHd').className='chip'; if(curId) openWatch(curId, $('ptitle').textContent, $('pauthor').textContent); } };
 $('chipHd').onclick = function(){ if(!curHd){ curHd = true; $('chipHd').className='chip on'; $('chipSd').className='chip'; if(curId) openWatch(curId, $('ptitle').textContent, $('pauthor').textContent); } };
 $('vid').addEventListener('error', function(){
-  if(curId && $('viewWatch').style.display !== 'none') showWMsg('ဒီ video ကို video အဖြစ် မရပါ — အသံ အဖြစ် Parami Mp3 Pro မှာ နားထောင်လို့ ရပါတယ်');
+  if(!curId || $('viewWatch').style.display === 'none') return;
+  if(!vidFallbackTried){
+    vidFallbackTried = true;
+    showWMsg('ပထမ လမ်းကြောင် မရပါ — နောက် လမ်းကြောင် နဲ့ ပြန် စမ်းနေပါတယ်...');
+    tryAltVideo(curId);
+    return;
+  }
+  showWMsg('ဒီ video ကို video အဖြစ် မရပါ — အသံ အဖြစ် Parami Mp3 Pro မှာ နားထောင်လို့ ရပါတယ်');
 });
 
-loadFeed('home');
+/* --- type-ahead suggestions: as he types, matching song/video names drop
+   down (served by the same /search the results page uses); tapping a name
+   plays it directly, tapping the first row searches the text --- */
+var sugTimer = null, sugSeq = 0;
+function hideSuggest(){ var b=$('suggest'); b.style.display='none'; b.innerHTML=''; }
+function renderSuggest(v, items){
+  var box = $('suggest'); box.innerHTML = '';
+  if(!items.length){ box.style.display = 'none'; return; }
+  var head = document.createElement('div');
+  head.className = 'sug search-row';
+  head.textContent = '🔍 "' + v + '" ရှာရန်';
+  head.onclick = function(){ hideSuggest(); doSearch(v); };
+  box.appendChild(head);
+  items.slice(0, 7).forEach(function(it){
+    var row = document.createElement('div');
+    row.className = 'sug';
+    row.textContent = '🎵 ' + (it.title || '');
+    if(it.author){ var sm = document.createElement('small'); sm.textContent = it.author; row.appendChild(sm); }
+    row.onclick = function(){ hideSuggest(); $('q').value = it.title || ''; openWatch(it.id, it.title, it.author); };
+    box.appendChild(row);
+  });
+  box.style.display = 'block';
+}
+$('q').addEventListener('input', function(){
+  var v = $('q').value.trim();
+  clearTimeout(sugTimer);
+  if(!v || parseId(v)){ hideSuggest(); return; }
+  sugTimer = setTimeout(function(){
+    var seq = ++sugSeq;
+    fetch(W + '/search?q=' + encodeURIComponent(v)).then(function(r){ return r.json(); }).then(function(d){
+      if(seq !== sugSeq || !d || !d.ok) return;
+      renderSuggest(v, d.results || []);
+    }).catch(function(){});
+  }, 280);
+});
+$('q').addEventListener('blur', function(){ setTimeout(hideSuggest, 250); });
+
+/* --- video rescue route: if the Worker stream fails in this browser
+   (it does on his phone), retry the same video through the Invidious
+   proxy route, whose streams his phone has played before --- */
+var vidFallbackTried = false;
+function tryAltVideo(id){
+  fetch('https://invidious.f5.si/api/v1/videos/' + encodeURIComponent(id) + '?local=true')
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      var fs = (d && d.formatStreams) || [];
+      var pick = null;
+      for(var i = 0; i < fs.length; i++){ if(String(fs[i].itag) === '18'){ pick = fs[i]; break; } }
+      if(!pick && fs.length) pick = fs[0];
+      if(pick && pick.url && curId === id){
+        showWMsg('');
+        var v = $('vid');
+        v.src = pick.url;
+        v.play().catch(function(){});
+      } else {
+        showWMsg('ဒီ video ကို video အဖြစ် မရပါ — အသံ အဖြစ် Parami Mp3 Pro မှာ နားထောင်လို့ ရပါတယ်');
+      }
+    })
+    .catch(function(){ showWMsg('ဒီ video ကို video အဖြစ် မရပါ — အသံ အဖြစ် Parami Mp3 Pro မှာ နားထောင်လို့ ရပါတယ်'); });
+}
 </script>
 </body>
 </html>
