@@ -69,7 +69,7 @@ function pickAudio(formats) {
 
 /* Ask the InnerTube player API (with this request's own egress IP).
    Throws on any failure so callers can race clients. */
-async function playerApi(id, c) {
+async function playerApiFull(id, c) {
   const r = await fetch('https://www.youtube.com/youtubei/v1/player?key=' + c.key + '&prettyPrint=false', {
     method: 'POST',
     headers: {
@@ -90,9 +90,51 @@ async function playerApi(id, c) {
   const d = await r.json();
   const status = d.playabilityStatus && d.playabilityStatus.status;
   if (status && status !== 'OK') throw new Error(c.name + ' ' + status);
+  return d;
+}
+
+/* Raw player response (used by the video path, which needs the muxed
+   formats that pickAudio ignores). */
+async function playerApiRaw(id, c) { return playerApiFull(id, c); }
+
+async function playerApi(id, c) {
+  const d = await playerApiFull(id, c);
   const f = pickAudio((d.streamingData && d.streamingData.adaptiveFormats) || []);
   if (!f) throw new Error(c.name + ' no audio format');
   return { data: d, format: f, client: c };
+}
+
+/* Pick a muxed (audio+video in one file) mp4 format a plain <video> element
+   can play: itag 18 (360p) by default, itag 22 (720p) when HD is asked. */
+function pickProgressive(formats, hd) {
+  const fs = (formats || []).filter(function (f) { return f && f.url && (f.mimeType || '').indexOf('video/mp4') === 0; });
+  if (!fs.length) return null;
+  const byItag = {};
+  fs.forEach(function (f) { byItag[f.itag] = f; });
+  if (hd && byItag[22]) return byItag[22];
+  if (byItag[18]) return byItag[18];
+  if (hd) {
+    const s = fs.filter(function (f) { return (f.height || 0) <= 720; }).sort(function (a, b) { return (b.height || 0) - (a.height || 0); });
+    if (s.length) return s[0];
+  }
+  const s2 = fs.slice().sort(function (a, b) { return (a.height || 9999) - (b.height || 9999); });
+  return s2[0];
+}
+
+/* Mint a muxed video format: ask all three clients in parallel and take
+   the first (ANDROID first — it carries the muxed formats most often)
+   whose response actually has one. */
+async function mintVideo(id, hd) {
+  const settled = await Promise.allSettled(CLIENTS.map(function (c) { return playerApiRaw(id, c); }));
+  const order = [1, 0, 2];
+  for (const i of order) {
+    const r = settled[i];
+    if (r.status !== 'fulfilled') continue;
+    const sd = r.value.streamingData || {};
+    const f = pickProgressive(sd.formats, hd);
+    if (f) return { data: r.value, format: f, client: CLIENTS[i] };
+  }
+  return null;
 }
 
 /* Mint a stream URL fast: ANDROID_VR and ANDROID race in parallel and the
@@ -197,6 +239,69 @@ async function handlePlay(request, id) {
 }
 
 /* ---------- /stream : legacy proxy for URLs stored by v1 ---------- */
+/* /watch?v=<id>[&hd=1] — stream the muxed video file, minted and fetched
+   inside this single request (same egress-IP rule as /play). */
+async function handleWatch(request, id, hd) {
+  const range = request.headers.get('range');
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await mintVideo(id, hd);
+      if (!res) break;
+      const headers = { 'User-Agent': res.client.ua };
+      if (range) headers['Range'] = range;
+      const up = await fetch(res.format.url, { headers: headers, redirect: 'follow' });
+      if (up.status === 200 || up.status === 206) return streamResponse(up);
+    } catch (e) { /* fresh mint round */ }
+  }
+  return json({ ok: false, error: 'video format not available for this video' }, 502);
+}
+
+function parseDur(t) {
+  if (!t) return 0;
+  const parts = t.split(':').map(function (x) { return parseInt(x, 10) || 0; });
+  let s = 0;
+  for (const n of parts) s = s * 60 + n;
+  return s;
+}
+
+function collectRenderers(node, out) {
+  if (!node || typeof node !== 'object') return;
+  if (node.videoRenderer && node.videoRenderer.videoId) out.push(node.videoRenderer);
+  for (const k in node) {
+    const ch = node[k];
+    if (ch && typeof ch === 'object') collectRenderers(ch, out);
+  }
+}
+
+/* /search?q=<text> — YouTube search through the InnerTube WEB client. */
+async function handleSearch(q) {
+  try {
+    const r = await fetch('https://www.youtube.com/youtubei/v1/search?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8&prettyPrint=false', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'User-Agent': BROWSER_UA },
+      body: JSON.stringify({ context: { client: { clientName: 'WEB', clientVersion: '2.20240111.09.00', hl: 'en', gl: 'US' } }, query: q }),
+    });
+    if (!r.ok) return json({ ok: false, error: 'search HTTP ' + r.status }, 502);
+    const d = await r.json();
+    const rends = [];
+    collectRenderers(d, rends);
+    const seen = {};
+    const out = [];
+    for (const v of rends) {
+      if (seen[v.videoId]) continue;
+      seen[v.videoId] = 1;
+      const title = ((v.title && v.title.runs && v.title.runs[0]) || {}).text || '';
+      const author = ((v.longBylineText && v.longBylineText.runs && v.longBylineText.runs[0]) || {}).text || '';
+      const lt = (v.lengthText && v.lengthText.simpleText) || '';
+      out.push({ id: v.videoId, title: title, author: author, duration: parseDur(lt) });
+      if (out.length >= 15) break;
+    }
+    return json({ ok: true, results: out });
+  } catch (e) {
+    return json({ ok: false, error: String(e) }, 502);
+  }
+}
+
 async function handleStream(request, url) {
   const raw = url.searchParams.get('u');
   if (!raw) return new Response('missing u', { status: 400, headers: CORS });
@@ -226,7 +331,17 @@ export default {
         return await handlePlay(request, id);
       }
       if (url.pathname === '/stream') return await handleStream(request, url);
-      return new Response('Parami Mp3 Pro Worker OK v2.1', { headers: Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, CORS) });
+      if (url.pathname === '/watch') {
+        const v = url.searchParams.get('v') || '';
+        if (!/^[\w-]{11}$/.test(v)) return json({ ok: false, error: 'bad video id' }, 400);
+        return await handleWatch(request, v, url.searchParams.get('hd') === '1');
+      }
+      if (url.pathname === '/search') {
+        const q = (url.searchParams.get('q') || '').trim();
+        if (!q) return json({ ok: false, error: 'empty query' }, 400);
+        return await handleSearch(q);
+      }
+      return new Response('Parami Mp3 Pro Worker OK v3', { headers: Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, CORS) });
     } catch (e) {
       return json({ ok: false, error: String(e && e.message ? e.message : e) }, 500);
     }
