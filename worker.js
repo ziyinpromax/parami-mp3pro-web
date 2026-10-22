@@ -160,7 +160,7 @@ let lastMintErrors = [];
 async function mintVideo(id, hd) {
   lastMintErrors = [];
   const order = [1, 3, 0, 5, 6, 4, 7, 8, 2];
-  for (let pass = 0; pass < 2; pass++) {
+  for (let pass = 0; pass < 1; pass++) {
     const settled = await Promise.allSettled(CLIENTS.map(function (c) { return playerApiRaw(id, c); }));
     let passErr = [];
     for (const i of order) {
@@ -558,7 +558,7 @@ async function handleStoreBigB2(env, url) {
     const probe = await fetch(signedProbe, { method: 'GET', headers: { 'Range': 'bytes=0-0' } });
     if (probe.status === 200 || probe.status === 206) return json({ ok: true, url: dlUrl, cached: true });
     let lastErr = '';
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < 2; attempt++) {
       const m = await mintVideo(id, hd);
       if (!m) { lastErr = lastMintErrors.length ? lastMintErrors.join('; ') : 'mint failed'; continue; }
       let total = parseInt(m.format.contentLength || '0', 10);
@@ -789,7 +789,7 @@ async function handleStore(env, url) {
     const head = await ghApi(env, 'GET', '/repos/' + GH_REPO + '/contents/' + name);
     if (head.status === 200 && !forceTo) return json({ ok: true, url: fileUrl, cached: true });
     let buf = null, lastErr = '';
-    for (let attempt = 0; attempt < 4 && !buf; attempt++) {
+    for (let attempt = 0; attempt < 3 && !buf; attempt++) {
       const m = kind === 'audio' ? await mintAny(id) : await mintVideo(id, hd);
       if (!m) { lastErr = lastMintErrors.length ? lastMintErrors.join('; ') : 'mint failed'; continue; }
       const knownLen = parseInt(m.format.contentLength || '0', 10);
@@ -1030,7 +1030,7 @@ export default {
         if (!q) return json({ ok: false, error: 'empty query' }, 400);
         return await handleSearch(q);
       }
-      return new Response('Parami Mp3 Pro Worker OK v11.4', { headers: Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, CORS) });
+      return new Response('Parami Mp3 Pro Worker OK v11.5', { headers: Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, CORS) });
     } catch (e) {
       return json({ ok: false, error: String(e && e.message ? e.message : e) }, 500);
     }
