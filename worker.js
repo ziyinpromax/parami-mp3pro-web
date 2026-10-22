@@ -655,11 +655,13 @@ async function poolWrite(env, files, sha) {
   if (sha) body.sha = sha;
   await ghApi(env, 'PUT', '/repos/' + GH_REPO + '/contents/pool.json', body);
 }
-async function poolAdd(env, name, backend, size) {
+async function poolAdd(env, name, backend, size, extra) {
   try {
     const p = await poolRead(env);
     const files = p.files.filter(function (f) { return !(f.n === name && f.b === backend); });
-    files.push({ n: name, b: backend, s: size, t: Date.now() });
+    const entry = { n: name, b: backend, s: size, t: Date.now() };
+    if (extra) for (const k in extra) entry[k] = extra[k];
+    files.push(entry);
     await poolWrite(env, files, p.sha);
   } catch (e) {}
 }
@@ -675,9 +677,53 @@ async function pagesDeleteFile(env, path) {
   const del = await ghApi(env, 'DELETE', '/repos/' + GH_REPO + '/contents/' + path, { message: 'pool cleanup ' + path, sha: d.sha });
   return del.status === 200;
 }
+
+/* ---------- Telegram tier ----------
+   A bot posts each file into his channel (Bot API sendDocument, <=50 MB
+   up) and playback redirects to the api.telegram.org file URL. The cloud
+   Bot API only lets bots DOWNLOAD files up to 20 MB, so this tier takes
+   files <=19.5 MB — songs and short clips — in unlimited numbers. */
+async function tgUpload(env, name, buf, ctype) {
+  const fd = new FormData();
+  fd.append('chat_id', env.TG_CHAT_ID);
+  fd.append('document', new Blob([buf], { type: ctype || 'application/octet-stream' }), name);
+  fd.append('caption', name);
+  const r = await fetch('https://api.telegram.org/bot' + env.TG_BOT_TOKEN + '/sendDocument', { method: 'POST', body: fd });
+  const d = await r.json().catch(function () { return null; });
+  if (!d || !d.ok || !d.result) return null;
+  const doc = d.result.document || {};
+  if (!doc.file_id) return null;
+  return { fid: doc.file_id, mid: d.result.message_id || 0 };
+}
+function tgPlayUrl(origin, name) {
+  return origin + '/tgplay?name=' + encodeURIComponent(name) + '&k=' + STORE_KEY;
+}
+async function handleTgPlay(env, url) {
+  if (url.searchParams.get('k') !== STORE_KEY) return json({ ok: false, error: 'bad key' }, 403);
+  const name = url.searchParams.get('name') || '';
+  if (!/^[\w.-]+$/.test(name)) return json({ ok: false, error: 'bad name' }, 400);
+  if (!env || !env.TG_BOT_TOKEN) return json({ ok: false, error: 'tg not configured' }, 500);
+  const p = await poolRead(env);
+  const f = p.files.find(function (x) { return x.b === 'tg' && x.n === name; });
+  if (!f || !f.fid) return json({ ok: false, error: 'not found' }, 404);
+  const r = await fetch('https://api.telegram.org/bot' + env.TG_BOT_TOKEN + '/getFile?file_id=' + encodeURIComponent(f.fid));
+  const d = await r.json().catch(function () { return null; });
+  if (!d || !d.ok || !d.result || !d.result.file_path) return json({ ok: false, error: 'tg getFile failed' }, 502);
+  return new Response(null, { status: 302, headers: { 'Location': 'https://api.telegram.org/file/bot' + env.TG_BOT_TOKEN + '/' + d.result.file_path, 'Access-Control-Allow-Origin': '*' } });
+}
+async function tgDelete(env, f) {
+  if (!f.mid) return false;
+  const r = await fetch('https://api.telegram.org/bot' + env.TG_BOT_TOKEN + '/deleteMessage', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: env.TG_CHAT_ID, message_id: f.mid }),
+  });
+  const d = await r.json().catch(function () { return null; });
+  return !!(d && d.ok);
+}
+
 async function handleCleanup(env, url) {
   if (url.searchParams.get('k') !== STORE_KEY) return json({ ok: false, error: 'bad key' }, 403);
-  const backend = url.searchParams.get('backend') === 'b2' ? 'b2' : 'pages';
+  const backend = ['b2', 'tg'].indexOf(url.searchParams.get('backend')) >= 0 ? url.searchParams.get('backend') : 'pages';
   const keep = Math.max(0, parseFloat(url.searchParams.get('keepmb') || '0')) * 1048576;
   const dry = url.searchParams.get('dry') === '1';
   const p = await poolRead(env);
@@ -689,6 +735,7 @@ async function handleCleanup(env, url) {
     if (!dry) {
       let ok = false;
       if (backend === 'pages') ok = await pagesDeleteFile(env, f.n);
+      else if (backend === 'tg') ok = await tgDelete(env, f);
       else { const dr = await b2Req(env, 'DELETE', f.n, '', null, EMPTY_SHA); ok = dr.ok || dr.status === 204; }
       if (!ok) continue;
     }
@@ -729,8 +776,9 @@ async function handleStore(env, url) {
       buf = b;
     }
     if (!buf) return json({ ok: false, error: 'YouTube ကနေ ဒီ video ကို ယူမရပါ [' + lastErr + ']' }, 502);
-    let pagesFull = false;
-    try { const p0 = await poolRead(env); pagesFull = poolTotals(p0.files).pages >= 950 * 1048576; } catch (e) {}
+    const forceTo = url.searchParams.get('to') || '';
+    let pagesFull = forceTo === 'tg' || forceTo === 'b2';
+    if (!pagesFull) { try { const p0 = await poolRead(env); pagesFull = poolTotals(p0.files).pages >= 950 * 1048576; } catch (e) {} }
     if (!pagesFull) {
       const put = await ghApi(env, 'PUT', '/repos/' + GH_REPO + '/contents/' + name, {
         message: 'store ' + id, content: bytesToB64(buf),
@@ -742,6 +790,14 @@ async function handleStore(env, url) {
       }
       const re = await ghApi(env, 'GET', '/repos/' + GH_REPO + '/contents/' + name);
       if (re.status === 200) return json({ ok: true, url: fileUrl, cached: true });
+    }
+    if (env.TG_BOT_TOKEN && env.TG_CHAT_ID && buf.byteLength <= 19500000) {
+      const key = name.split('/').pop();
+      const up = await tgUpload(env, key, buf, kind === 'audio' ? 'audio/mp4' : 'video/mp4');
+      if (up) {
+        await poolAdd(env, key, 'tg', buf.byteLength, up);
+        return json({ ok: true, url: tgPlayUrl(url.origin, key), cached: false, bytes: buf.byteLength, backend: 'tg' });
+      }
     }
     if (env.B2_KEY_ID && env.B2_APP_KEY) {
       const key = name.split('/').pop();
@@ -933,6 +989,9 @@ export default {
       if (url.pathname === '/b2play') {
         return await handleB2Play(env, url);
       }
+      if (url.pathname === '/tgplay') {
+        return await handleTgPlay(env, url);
+      }
       if (url.pathname === '/cleanup') {
         return await handleCleanup(env, url);
       }
@@ -946,7 +1005,7 @@ export default {
         if (!q) return json({ ok: false, error: 'empty query' }, 400);
         return await handleSearch(q);
       }
-      return new Response('Parami Mp3 Pro Worker OK v10.3', { headers: Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, CORS) });
+      return new Response('Parami Mp3 Pro Worker OK v11', { headers: Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, CORS) });
     } catch (e) {
       return json({ ok: false, error: String(e && e.message ? e.message : e) }, 500);
     }
