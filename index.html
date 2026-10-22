@@ -1230,9 +1230,21 @@ async function startNativeQueue(q){
 }
 var stallTimer=null;
 var playT0=0;
-function healStuck(t){
+function healStuck(t, viaRace){
   if(retrying || t.local) return;
   retrying=true;
+  if(viaRace){
+    /* last resort: the full engine race (the legacy route has played on
+       this phone before when the Worker stream would not) */
+    getInfoRace(t.videoId, null, {loader:false}).then(function(inf){
+      if(current!==t) return;
+      t.audioUrl=inf.audioUrl; t.expiresAt=inf.expiresAt||0; t.urlAt=Date.now(); t.source=inf.source||t.source; save();
+      playT0=Date.now();
+      audio.src=t.audioUrl;
+      return audio.play();
+    }).catch(function(){});
+    return;
+  }
   t.audioUrl=''; t.expiresAt=0;
   ensureFreshUrl(t).then(function(){
     if(current!==t) return;
@@ -1241,12 +1253,15 @@ function healStuck(t){
     return audio.play();
   }).catch(function(){});
 }
-function armStallWatch(t){
+function armStallWatch(t, stage){
   if(stallTimer){ clearTimeout(stallTimer); stallTimer=null; }
   stallTimer=setTimeout(function(){
     stallTimer=null;
     if(current!==t || t.local) return;
-    if(!audio.paused && audio.readyState<3 && audio.currentTime<0.5) healStuck(t);
+    if(!audio.paused && audio.readyState<3 && audio.currentTime<0.5){
+      healStuck(t, stage>=1);
+      if(stage<1 && current===t) armStallWatch(t, 1);
+    }
   }, 15000);
 }
 async function webPlay(t){
@@ -1262,10 +1277,12 @@ async function webPlay(t){
     }
     await audio.play();
     playErrCount[t.id]=0;
-    if(!t.local) armStallWatch(t);
+    if(!t.local) armStallWatch(t, 0);
   }catch(e){
     if(!t.local && !retrying){ retrying=true;
-      try{ t.audioUrl=''; t.expiresAt=0; await ensureFreshUrl(t); audio.src=t.audioUrl; await audio.play(); return; }catch(e2){}
+      try{ t.audioUrl=''; t.expiresAt=0; await ensureFreshUrl(t); audio.src=t.audioUrl; await audio.play(); return; }catch(e2){
+        try{ var inf2=await getInfoRace(t.videoId, null, {loader:false}); t.audioUrl=inf2.audioUrl; t.expiresAt=inf2.expiresAt||0; t.urlAt=Date.now(); t.source=inf2.source||t.source; save(); audio.src=t.audioUrl; await audio.play(); return; }catch(e3){}
+      }
     }
     if(webFirstTrackId && t.id===webFirstTrackId && hasNative()){
       webFirstTrackId=null;
