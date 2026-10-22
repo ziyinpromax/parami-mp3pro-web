@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="my">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Parami Video — ကြေညာမပါဘဲ ကြည့်ရန်</title>
+<link rel="icon" href="logo.jpg">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, sans-serif; color: #eef; min-height: 100vh;
+    background: radial-gradient(1200px 700px at 20% -10%, #1b1050 0%, transparent 60%),
+                radial-gradient(1000px 600px at 110% 10%, #063a5e 0%, transparent 55%),
+                linear-gradient(180deg, #070818 0%, #0a0a24 100%); }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 18px 14px 40px; }
+  h1 { font-size: 24px; background: linear-gradient(90deg,#22d3ee,#a78bfa);
+       -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .sub { color: #9fb; opacity: .75; font-size: 13px; margin: 4px 0 16px; }
+  .row { display: flex; gap: 8px; }
+  input[type=text] { flex: 1; padding: 13px 14px; border-radius: 14px; border: 1px solid #2dd4ee44;
+    background: #ffffff10; color: #fff; font-size: 15px; outline: none; }
+  input[type=text]:focus { border-color: #22d3ee; }
+  button.go { padding: 0 18px; border: 0; border-radius: 14px; font-size: 15px; font-weight: 700;
+    color: #06121f; background: linear-gradient(90deg,#22d3ee,#a78bfa); cursor: pointer; }
+  .player { margin-top: 16px; display: none; }
+  video { width: 100%; border-radius: 16px; background: #000; aspect-ratio: 16/9; }
+  .ptitle { font-size: 16px; font-weight: 700; margin: 10px 2px 2px; }
+  .pauthor { color: #aab; font-size: 13px; margin: 0 2px 8px; }
+  .chips { display: flex; gap: 8px; align-items: center; margin: 8px 0 4px; flex-wrap: wrap; }
+  .chip { padding: 7px 14px; border-radius: 999px; border: 1px solid #2dd4ee55; background: #ffffff10;
+    color: #cfe; font-size: 13px; cursor: pointer; }
+  .chip.on { background: linear-gradient(90deg,#22d3ee,#a78bfa); color: #06121f; font-weight: 700; border: 0; }
+  .mp3link { margin-left: auto; color: #7ee7fc; font-size: 13px; text-decoration: none; }
+  .msg { margin-top: 14px; padding: 12px 14px; border-radius: 12px; background: #f43f5e18;
+    border: 1px solid #f43f5e44; color: #fda4af; font-size: 14px; display: none; }
+  .status { margin-top: 14px; color: #9fb; opacity: .8; font-size: 14px; display: none; }
+  .results { margin-top: 18px; display: flex; flex-direction: column; gap: 10px; }
+  .item { display: flex; gap: 12px; padding: 10px; border-radius: 16px; cursor: pointer;
+    background: #ffffff08; border: 1px solid #ffffff14; }
+  .item:active { background: #ffffff14; }
+  .item img { width: 128px; height: 72px; object-fit: cover; border-radius: 10px; background: #111; flex: none; }
+  .item .t { font-size: 14px; font-weight: 600; line-height: 1.35; }
+  .item .a { font-size: 12px; color: #aab; margin-top: 4px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>📺 Parami Video</h1>
+  <div class="sub">ကြေညာ လုံးဝ မပါဘဲ YouTube ကြည့်ရန် — ကိုယ်ပိုင် page</div>
+
+  <div class="row">
+    <input type="text" id="q" placeholder="YouTube link ထည့် (သို့) နာမည် ရိုက်ရှာပါ" autocomplete="off">
+    <button class="go" id="goBtn">ကြည့်ရန်</button>
+  </div>
+
+  <div class="player" id="player">
+    <video id="vid" controls playsinline></video>
+    <div class="ptitle" id="ptitle"></div>
+    <div class="pauthor" id="pauthor"></div>
+    <div class="chips">
+      <span class="chip on" id="chipSd">360p</span>
+      <span class="chip" id="chipHd">720p</span>
+      <a class="mp3link" href="./">🎵 အသံသာ → Parami Mp3 Pro</a>
+    </div>
+  </div>
+
+  <div class="msg" id="msg"></div>
+  <div class="status" id="status"></div>
+  <div class="results" id="results"></div>
+</div>
+
+<script>
+var DEFAULT_WORKER = 'https://parami-mp3.ylin59905.workers.dev';
+function workerBase(){ try{ return (localStorage.getItem('mp3pro_worker')||DEFAULT_WORKER).replace(/\/+$/,''); }catch(e){ return DEFAULT_WORKER; } }
+var W = workerBase();
+var curId = '', curHd = false;
+var $ = function(id){ return document.getElementById(id); };
+
+function parseId(text){
+  if(!text) return '';
+  text = text.trim();
+  var m = text.match(/(?:youtu\.be\/|[?&]v=|\/shorts\/|\/embed\/|\/live\/|\/v\/)([\w-]{11})/);
+  if(m) return m[1];
+  if(/^[\w-]{11}$/.test(text)) return text;
+  return '';
+}
+function fmtDur(s){
+  s = Math.max(0, Math.floor(s||0));
+  var h = Math.floor(s/3600), m = Math.floor((s%3600)/60), ss = s%60;
+  var mm = h>0 && m<10 ? '0'+m : ''+m;
+  return (h>0 ? h+':' : '') + mm + ':' + (ss<10?'0':'') + ss;
+}
+function showMsg(t){ var e=$('msg'); e.textContent=t||''; e.style.display=t?'block':'none'; }
+function showStatus(t){ var e=$('status'); e.textContent=t||''; e.style.display=t?'block':'none'; }
+
+function watch(id, title, author){
+  curId = id;
+  showMsg(''); showStatus('');
+  $('player').style.display = 'block';
+  $('ptitle').textContent = title || '';
+  $('pauthor').textContent = author || '';
+  var vid = $('vid');
+  vid.src = W + '/watch?v=' + encodeURIComponent(id) + (curHd ? '&hd=1' : '');
+  vid.play().catch(function(){});
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  if(!title){
+    fetch(W + '/info?v=' + encodeURIComponent(id)).then(function(r){ return r.json(); }).then(function(d){
+      if(d && d.ok && curId === id){ $('ptitle').textContent = d.title||''; $('pauthor').textContent = d.author||''; }
+    }).catch(function(){});
+  }
+}
+
+function search(q){
+  showMsg(''); showStatus('ရှာနေပါတယ်...');
+  $('results').innerHTML = '';
+  fetch(W + '/search?q=' + encodeURIComponent(q)).then(function(r){ return r.json(); }).then(function(d){
+    showStatus('');
+    if(!d || !d.ok){ showMsg('ရှာလို့ မရပါ — ခဏနေ ပြန် စမ်းပါ'); return; }
+    if(!d.results.length){ showMsg('မတွေ့ပါ'); return; }
+    var box = $('results');
+    d.results.forEach(function(it){
+      var div = document.createElement('div');
+      div.className = 'item';
+      var img = document.createElement('img');
+      img.src = 'https://i.ytimg.com/vi/' + it.id + '/mqdefault.jpg';
+      img.alt = '';
+      var mid = document.createElement('div');
+      var t = document.createElement('div'); t.className = 't'; t.textContent = it.title || '';
+      var a = document.createElement('div'); a.className = 'a';
+      a.textContent = (it.author || '') + (it.duration ? ' • ' + fmtDur(it.duration) : '');
+      mid.appendChild(t); mid.appendChild(a);
+      div.appendChild(img); div.appendChild(mid);
+      div.onclick = function(){ watch(it.id, it.title, it.author); };
+      box.appendChild(div);
+    });
+  }).catch(function(){ showStatus(''); showMsg('ရှာလို့ မရပါ — အင်တာနက် စစ်ပါ'); });
+}
+
+function go(){
+  var v = $('q').value.trim();
+  if(!v) return;
+  var id = parseId(v);
+  if(id) watch(id, '', '');
+  else search(v);
+}
+$('goBtn').onclick = go;
+$('q').addEventListener('keydown', function(e){ if(e.key === 'Enter') go(); });
+$('chipSd').onclick = function(){ if(curHd){ curHd = false; $('chipSd').className='chip on'; $('chipHd').className='chip'; if(curId) watch(curId, $('ptitle').textContent, $('pauthor').textContent); } };
+$('chipHd').onclick = function(){ if(!curHd){ curHd = true; $('chipHd').className='chip on'; $('chipSd').className='chip'; if(curId) watch(curId, $('ptitle').textContent, $('pauthor').textContent); } };
+$('vid').addEventListener('error', function(){
+  if(curId) showMsg('ဒီ video ကို video အဖြစ် မရပါ — အသံ အဖြစ် Parami Mp3 Pro မှာ နားထောင်လို့ ရပါတယ်');
+});
+</script>
+</body>
+</html>
