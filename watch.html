@@ -218,11 +218,18 @@ function loadFeed(cat){
   showView('home');
   showMsg(''); showStatus('ခဏ စောင့်ပါ...');
   $('grid').innerHTML = '';
-  fetch(W + '/feed?cat=' + encodeURIComponent(cat)).then(function(r){ return r.json(); }).then(function(d){
-    showStatus('');
-    if(!d || !d.ok || !d.results || !d.results.length){ showMsg('မရပါ — ခဏနေ ပြန် စမ်းပါ'); return; }
-    renderGrid(d.results);
-  }).catch(function(){ showStatus(''); showMsg('မရပါ — အင်တာနက် စစ်ပါ'); });
+  var tries = 0;
+  (function go(){
+    if(curCat !== cat) return;
+    fetch(W + '/feed?cat=' + encodeURIComponent(cat)).then(function(r){ return r.json(); }).then(function(d){
+      if(d && d.ok && d.results && d.results.length){ showStatus(''); renderGrid(d.results); return; }
+      if(tries < 2){ tries++; showStatus('ပြန် စမ်းနေပါတယ်...'); setTimeout(go, 2500); return; }
+      showStatus(''); showMsg('မရပါ — ခဏနေ ပြန် စမ်းပါ');
+    }).catch(function(){
+      if(tries < 2){ tries++; showStatus('ပြန် စမ်းနေပါတယ်...'); setTimeout(go, 2500); return; }
+      showStatus(''); showMsg('မရပါ — အင်တာနက် စစ်ပါ');
+    });
+  })();
 }
 
 function doSearch(q){
@@ -345,6 +352,7 @@ $('q').addEventListener('input', function(){
 });
 $('q').addEventListener('blur', function(){ setTimeout(hideSuggest, 250); });
 
+loadFeed('home');
 </script>
 </body>
 </html>
