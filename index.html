@@ -332,6 +332,7 @@ function sanitizeFilename(name){
 var LS_KEY='parami_mp3pro_v1';
 var state={folders:[],tracks:[]};
 try{ var raw=localStorage.getItem(LS_KEY); if(raw){ var p=JSON.parse(raw); if(p&&p.tracks) state=p; } }catch(e){}
+try{ var mig=false; (state.tracks||[]).forEach(function(t){ if(!t.local && t.audioUrl && t.audioUrl.indexOf('/play?v=')<0){ t.audioUrl=''; t.expiresAt=0; t.urlAt=0; mig=true; } }); if(mig) save(); }catch(e){}
 var restoredFromBackup=0;
 try{
   if(!state.tracks.length && window.AndroidBridge && AndroidBridge.loadBackup){
@@ -433,12 +434,12 @@ function nativeGetInfo(id){
 /* ---------- Step 3: user's own Cloudflare Worker ---------- */
 var DEFAULT_WORKER='https://parami-mp3.ylin59905.workers.dev';
 function workerBase(){ try{ return (localStorage.getItem('mp3pro_worker')||DEFAULT_WORKER).replace(/\/+$/,''); }catch(e){ return DEFAULT_WORKER; } }
-function workerGetInfo(id){
+function workerGetInfo(id, timeoutMs){
   return new Promise(function(resolve, reject){
     var base=workerBase();
     if(!base){ reject(new Error('no worker')); return; }
     var ctl=('AbortController' in window)?new AbortController():null;
-    var to=setTimeout(function(){ if(ctl) ctl.abort(); reject(new Error('worker timeout')); }, 280000);
+    var to=setTimeout(function(){ if(ctl) ctl.abort(); reject(new Error('worker timeout')); }, timeoutMs||280000);
     var opt={}; if(ctl) opt.signal=ctl.signal;
     fetch(base+'/info?v='+encodeURIComponent(id), opt)
       .then(function(r){ return r.json(); })
@@ -549,6 +550,16 @@ async function legacyGetInfo(id, report){
    Server-side engines fetch with the SERVER's IP, so a bot-flag on the
    phone's own IP no longer blocks conversion when a server succeeds. */
 async function getInfo(id, report, opts){
+  if(workerBase()){
+    try{
+      var w=await workerGetInfo(id, (opts&&opts.wkTimeout)||280000);
+      if(report) report('Worker က ရပါပြီ ✓');
+      return w;
+    }catch(e){ /* worker failed: fall back to the race */ }
+  }
+  return getInfoRace(id, report, opts);
+}
+async function getInfoRace(id, report, opts){
   var useLoader = !opts || opts.loader !== false;
   if(report) report('တိုက်ရိုက် + server များ တစ်ပြိုင်တည်း စမ်းနေပါတယ်...');
   var natP=nativeGetInfo(id).then(function(v){ return {v:v}; }, function(e){ return {e:e}; });
@@ -1086,7 +1097,7 @@ async function ensureFreshUrl(t, force){
   var lifeMs = isLoaderT ? 5*60000 : 2*3600000;
   var stale = !t.audioUrl || isExpired(t) || !t.urlAt || (Date.now()-t.urlAt > lifeMs);
   if(!force && !stale) return t;
-  var info=await getInfo(t.videoId, null, {loader:isLoaderT});
+  var info=await getInfo(t.videoId, null, {loader:isLoaderT, wkTimeout:25000});
   t.audioUrl=info.audioUrl; t.expiresAt=info.expiresAt||0; t.urlAt=Date.now(); t.source=info.source||t.source||'';
   if(info.title && (!t.title || t.title==='Unknown')) t.title=info.title;
   if(!t.duration) t.duration=info.duration||0;
