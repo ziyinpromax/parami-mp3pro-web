@@ -273,27 +273,138 @@ function collectRenderers(node, out) {
   }
 }
 
+const WEB_KEY = 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
+const WEB_CTX = { client: { clientName: 'WEB', clientVersion: '2.20240111.09.00', hl: 'en', gl: 'US' } };
+
+function mapRenderer(v) {
+  const title = ((v.title && v.title.runs && v.title.runs[0]) || {}).text || '';
+  const author = ((v.longBylineText && v.longBylineText.runs && v.longBylineText.runs[0]) || {}).text || '';
+  const lt = (v.lengthText && v.lengthText.simpleText) || '';
+  return { id: v.videoId, title: title, author: author, duration: parseDur(lt) };
+}
+
+function dedupeMap(rends, cap) {
+  const seen = {};
+  const out = [];
+  for (const v of rends) {
+    if (!v.videoId || seen[v.videoId]) continue;
+    seen[v.videoId] = 1;
+    out.push(mapRenderer(v));
+    if (out.length >= cap) break;
+  }
+  return out;
+}
+
+async function ytSearch(q) {
+  const r = await fetch('https://www.youtube.com/youtubei/v1/search?key=' + WEB_KEY + '&prettyPrint=false', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'User-Agent': BROWSER_UA },
+    body: JSON.stringify({ context: WEB_CTX, query: q }),
+  });
+  if (!r.ok) throw new Error('search HTTP ' + r.status);
+  const d = await r.json();
+  const rends = [];
+  collectRenderers(d, rends);
+  return dedupeMap(rends, 15);
+}
+
 /* /search?q=<text> — YouTube search through the InnerTube WEB client. */
 async function handleSearch(q) {
   try {
-    const r = await fetch('https://www.youtube.com/youtubei/v1/search?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8&prettyPrint=false', {
+    return json({ ok: true, results: await ytSearch(q) });
+  } catch (e) {
+    return json({ ok: false, error: String(e) }, 502);
+  }
+}
+
+/* Home/category feed: try YouTube's own logged-out home grid (browse API)
+   first; fall back to a category search, which always answers. */
+const FEED_QUERIES = {
+  home: 'မြန်မာ သီချင်း ဇာတ်လမ်း',
+  music: 'Myanmar music video သီချင်း',
+  story: 'မြန်မာ ဇာတ်လမ်း အသံ',
+  news: 'Myanmar news သတင်း',
+  funny: 'မြန်မာ ဟာသ',
+};
+
+async function handleFeed(cat) {
+  if (cat === 'home') {
+    try {
+      const r = await fetch('https://www.youtube.com/youtubei/v1/browse?key=' + WEB_KEY + '&prettyPrint=false', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'User-Agent': BROWSER_UA },
+        body: JSON.stringify({ context: WEB_CTX, browseId: 'FEwhat_to_watch' }),
+      });
+      if (r.ok) {
+        const d = await r.json();
+        const rends = [];
+        collectRenderers(d, rends);
+        const items = dedupeMap(rends, 20);
+        if (items.length >= 5) return json({ ok: true, source: 'browse', results: items });
+      }
+    } catch (e) { /* fall through to the search feed */ }
+  }
+  try {
+    const q = FEED_QUERIES[cat] || FEED_QUERIES.home;
+    return json({ ok: true, source: 'search', results: await ytSearch(q) });
+  } catch (e) {
+    return json({ ok: false, error: String(e) }, 502);
+  }
+}
+
+/* The watch-next rail now arrives as lockupViewModel items (the old
+   compactVideoRenderer is gone from both WEB and ANDROID responses). */
+function collectLockups(node, out) {
+  if (!node || typeof node !== 'object') return;
+  const lv = node.lockupViewModel;
+  if (lv && lv.contentType === 'LOCKUP_CONTENT_TYPE_VIDEO' && lv.contentId) out.push(lv);
+  for (const k in node) {
+    const ch = node[k];
+    if (ch && typeof ch === 'object') collectLockups(ch, out);
+  }
+}
+
+function mapLockup(lv) {
+  const md = (lv.metadata && lv.metadata.lockupMetadataViewModel) || {};
+  const title = (md.title && md.title.content) || '';
+  let author = '';
+  const rows = (md.metadata && md.metadata.contentMetadataViewModel && md.metadata.contentMetadataViewModel.metadataRows) || [];
+  if (rows.length && rows[0].metadataParts) {
+    author = rows[0].metadataParts.map(function (pt) { return (pt.text && pt.text.content) || ''; }).join('').trim();
+  }
+  let duration = 0;
+  const tv = (lv.contentImage && lv.contentImage.thumbnailViewModel) || {};
+  const overlays = tv.overlays || [];
+  for (const ov of overlays) {
+    const badges = (ov.thumbnailBottomOverlayViewModel && ov.thumbnailBottomOverlayViewModel.badges) || [];
+    for (const b of badges) {
+      const txt = (b.thumbnailBadgeViewModel && b.thumbnailBadgeViewModel.text) || '';
+      if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(txt)) { duration = parseDur(txt); break; }
+    }
+    if (duration) break;
+  }
+  return { id: lv.contentId, title: title, author: author, duration: duration };
+}
+
+/* /next?v=<id> — the "up next" rail YouTube shows beside a playing video. */
+async function handleNext(id) {
+  try {
+    const r = await fetch('https://www.youtube.com/youtubei/v1/next?key=' + WEB_KEY + '&prettyPrint=false', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'User-Agent': BROWSER_UA },
-      body: JSON.stringify({ context: { client: { clientName: 'WEB', clientVersion: '2.20240111.09.00', hl: 'en', gl: 'US' } }, query: q }),
+      body: JSON.stringify({ context: WEB_CTX, videoId: id }),
     });
-    if (!r.ok) return json({ ok: false, error: 'search HTTP ' + r.status }, 502);
+    if (!r.ok) return json({ ok: false, error: 'next HTTP ' + r.status }, 502);
     const d = await r.json();
-    const rends = [];
-    collectRenderers(d, rends);
+    const lockups = [];
+    collectLockups(d, lockups);
     const seen = {};
     const out = [];
-    for (const v of rends) {
-      if (seen[v.videoId]) continue;
-      seen[v.videoId] = 1;
-      const title = ((v.title && v.title.runs && v.title.runs[0]) || {}).text || '';
-      const author = ((v.longBylineText && v.longBylineText.runs && v.longBylineText.runs[0]) || {}).text || '';
-      const lt = (v.lengthText && v.lengthText.simpleText) || '';
-      out.push({ id: v.videoId, title: title, author: author, duration: parseDur(lt) });
+    for (const lv of lockups) {
+      const item = mapLockup(lv);
+      if (!item.id || seen[item.id] || item.id === id) continue;
+      seen[item.id] = 1;
+      out.push(item);
       if (out.length >= 15) break;
     }
     return json({ ok: true, results: out });
@@ -336,12 +447,21 @@ export default {
         if (!/^[\w-]{11}$/.test(v)) return json({ ok: false, error: 'bad video id' }, 400);
         return await handleWatch(request, v, url.searchParams.get('hd') === '1');
       }
+      if (url.pathname === '/feed') {
+        const cat = (url.searchParams.get('cat') || 'home').trim();
+        return await handleFeed(cat);
+      }
+      if (url.pathname === '/next') {
+        const v = url.searchParams.get('v') || '';
+        if (!/^[\w-]{11}$/.test(v)) return json({ ok: false, error: 'bad video id' }, 400);
+        return await handleNext(v);
+      }
       if (url.pathname === '/search') {
         const q = (url.searchParams.get('q') || '').trim();
         if (!q) return json({ ok: false, error: 'empty query' }, 400);
         return await handleSearch(q);
       }
-      return new Response('Parami Mp3 Pro Worker OK v3', { headers: Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, CORS) });
+      return new Response('Parami Mp3 Pro Worker OK v4', { headers: Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, CORS) });
     } catch (e) {
       return json({ ok: false, error: String(e && e.message ? e.message : e) }, 500);
     }
