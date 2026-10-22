@@ -1097,6 +1097,16 @@ async function ensureFreshUrl(t, force){
   var lifeMs = isLoaderT ? 5*60000 : 2*3600000;
   var stale = !t.audioUrl || isExpired(t) || !t.urlAt || (Date.now()-t.urlAt > lifeMs);
   if(!force && !stale) return t;
+  /* The play link needs no lookup: it is just the Worker base + the video
+     id, and /play re-mints the real stream server-side on every request.
+     Constructing it here makes a refresh cost ZERO network time; the old
+     /info round trip (plus its own server-side mint) was pure start delay. */
+  var wb=workerBase();
+  if(wb){
+    t.audioUrl=wb+'/play?v='+encodeURIComponent(t.videoId);
+    t.expiresAt=Date.now()+6*3600000; t.urlAt=Date.now(); t.source='worker';
+    save(); return t;
+  }
   var info=await getInfo(t.videoId, null, {loader:isLoaderT, wkTimeout:25000});
   t.audioUrl=info.audioUrl; t.expiresAt=info.expiresAt||0; t.urlAt=Date.now(); t.source=info.source||t.source||'';
   if(info.title && (!t.title || t.title==='Unknown')) t.title=info.title;
@@ -1159,7 +1169,8 @@ function webFallbackPlay(t){
     },500);
   }
 }
-function setDiag(txt){ var d=$('pDiag'); if(d) d.textContent=txt||''; }
+var diagText='';
+function setDiag(txt){ diagText=txt||''; var d=$('pDiag'); if(d) d.textContent=diagText; }
 function updatePlayerUI(t){
   $('mini').classList.add('show');
   $('miniThumb').src=t.thumb||''; $('miniTitle').textContent=t.title; $('miniArtist').textContent=t.author||'';
@@ -1218,12 +1229,14 @@ async function startNativeQueue(q){
   await webPlay(current);
 }
 var stallTimer=null;
+var playT0=0;
 function healStuck(t){
   if(retrying || t.local) return;
   retrying=true;
   t.audioUrl=''; t.expiresAt=0;
   ensureFreshUrl(t).then(function(){
     if(current!==t) return;
+    playT0=Date.now();
     audio.src=t.audioUrl;
     return audio.play();
   }).catch(function(){});
@@ -1244,6 +1257,7 @@ async function webPlay(t){
       audio.src=url;
     } else {
       if(!t.audioUrl || isExpired(t) || !t.urlAt) { try{ await ensureFreshUrl(t); }catch(e){} }
+      playT0=Date.now();
       audio.src=proxiedSrc(t);
     }
     await audio.play();
@@ -1321,7 +1335,7 @@ window.__onNativeEvent=function(type, trackId){
   }
 };
 /* --- web <audio> events --- */
-audio.addEventListener('play', function(){ if(engine==='web') setPlayIcons(true); });
+audio.addEventListener('play', function(){ if(engine==='web') setPlayIcons(true); if(playT0){ var ms=Date.now()-playT0; playT0=0; setDiag(diagText+' \u2022 \u23f1'+(ms/1000).toFixed(1)+'s'); } });
 audio.addEventListener('pause', function(){ if(engine==='web') setPlayIcons(false); });
 audio.addEventListener('timeupdate', function(){
   if(engine!=='web') return;
