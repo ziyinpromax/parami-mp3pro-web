@@ -759,9 +759,10 @@ async function handleStore(env, url) {
   const ext = kind === 'audio' ? '.m4a' : '.mp4';
   const name = 'files/' + id + (kind === 'video' && hd ? '-hd' : '') + ext;
   const fileUrl = PAGES_BASE + '/' + name;
+  const forceTo = url.searchParams.get('to') || '';
   try {
     const head = await ghApi(env, 'GET', '/repos/' + GH_REPO + '/contents/' + name);
-    if (head.status === 200) return json({ ok: true, url: fileUrl, cached: true });
+    if (head.status === 200 && !forceTo) return json({ ok: true, url: fileUrl, cached: true });
     let buf = null, lastErr = '';
     for (let attempt = 0; attempt < 4 && !buf; attempt++) {
       const m = kind === 'audio' ? await mintAny(id) : await mintVideo(id, hd);
@@ -776,7 +777,6 @@ async function handleStore(env, url) {
       buf = b;
     }
     if (!buf) return json({ ok: false, error: 'YouTube ကနေ ဒီ video ကို ယူမရပါ [' + lastErr + ']' }, 502);
-    const forceTo = url.searchParams.get('to') || '';
     let pagesFull = forceTo === 'tg' || forceTo === 'b2';
     if (!pagesFull) { try { const p0 = await poolRead(env); pagesFull = poolTotals(p0.files).pages >= 950 * 1048576; } catch (e) {} }
     if (!pagesFull) {
@@ -1005,7 +1005,7 @@ export default {
         if (!q) return json({ ok: false, error: 'empty query' }, 400);
         return await handleSearch(q);
       }
-      return new Response('Parami Mp3 Pro Worker OK v11', { headers: Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, CORS) });
+      return new Response('Parami Mp3 Pro Worker OK v11.1', { headers: Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, CORS) });
     } catch (e) {
       return json({ ok: false, error: String(e && e.message ? e.message : e) }, 500);
     }
