@@ -105,18 +105,20 @@ async function playerApi(id, c) {
 }
 
 /* Pick a muxed (audio+video in one file) mp4 format a plain <video> element
-   can play: itag 18 (360p) by default, itag 22 (720p) when HD is asked. */
+   can play: itag 18 (360p) by default; when HD is asked, itag 22 (720p) or
+   the best muxed format at/under 720p. When only 360p exists, HD callers get
+   360p honestly — the picked height is reported via X-Video-Height. */
 function pickProgressive(formats, hd) {
   const fs = (formats || []).filter(function (f) { return f && f.url && (f.mimeType || '').indexOf('video/mp4') === 0; });
   if (!fs.length) return null;
   const byItag = {};
   fs.forEach(function (f) { byItag[f.itag] = f; });
-  if (hd && byItag[22]) return byItag[22];
-  if (byItag[18]) return byItag[18];
   if (hd) {
+    if (byItag[22]) return byItag[22];
     const s = fs.filter(function (f) { return (f.height || 0) <= 720; }).sort(function (a, b) { return (b.height || 0) - (a.height || 0); });
     if (s.length) return s[0];
   }
+  if (byItag[18]) return byItag[18];
   const s2 = fs.slice().sort(function (a, b) { return (a.height || 9999) - (b.height || 9999); });
   return s2[0];
 }
@@ -202,13 +204,14 @@ async function loaderConvert(id) {
   throw new Error('loader timeout');
 }
 
-function streamResponse(up) {
+function streamResponse(up, extra) {
   const h = new Headers(CORS);
   for (const k of ['content-type', 'content-length', 'content-range', 'accept-ranges']) {
     const v = up.headers.get(k);
     if (v) h.set(k, v);
   }
   if (!h.has('accept-ranges')) h.set('accept-ranges', 'bytes');
+  if (extra) for (const k in extra) h.set(k, extra[k]);
   return new Response(up.body, { status: up.status, headers: h });
 }
 
@@ -220,7 +223,7 @@ async function handlePlay(request, id) {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const res = await mintAny(id);
-      if (!res) break;
+      if (!res) continue;
       const headers = { 'User-Agent': res.client.ua };
       if (range) headers['Range'] = range;
       const up = await fetch(res.format.url, { headers: headers, redirect: 'follow' });
@@ -243,14 +246,17 @@ async function handlePlay(request, id) {
    inside this single request (same egress-IP rule as /play). */
 async function handleWatch(request, id, hd) {
   const range = request.headers.get('range');
-  for (let attempt = 0; attempt < 2; attempt++) {
+  // No converter fallback exists for video (unlike /play), so retry the mint
+  // across rounds instead of failing on the first transient InnerTube miss.
+  for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const res = await mintVideo(id, hd);
-      if (!res) break;
+      if (!res) continue;
       const headers = { 'User-Agent': res.client.ua };
       if (range) headers['Range'] = range;
       const up = await fetch(res.format.url, { headers: headers, redirect: 'follow' });
-      if (up.status === 200 || up.status === 206) return streamResponse(up);
+      if (up.status === 200 || up.status === 206)
+        return streamResponse(up, { 'X-Video-Height': String(res.format.height || 0) });
     } catch (e) { /* fresh mint round */ }
   }
   return json({ ok: false, error: 'video format not available for this video' }, 502);
@@ -306,6 +312,21 @@ async function ytSearch(q) {
   const rends = [];
   collectRenderers(d, rends);
   return dedupeMap(rends, 15);
+}
+
+/* /suggest?q=<text> — type-ahead suggestions (YouTube's suggest service). */
+async function handleSuggest(q) {
+  try {
+    const r = await fetch('https://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q=' + encodeURIComponent(q), {
+      headers: { 'User-Agent': BROWSER_UA },
+    });
+    if (!r.ok) return json({ ok: false, error: 'suggest HTTP ' + r.status }, 502);
+    const d = await r.json();
+    const list = (Array.isArray(d) && Array.isArray(d[1])) ? d[1] : [];
+    return json({ ok: true, suggestions: list.slice(0, 10) });
+  } catch (e) {
+    return json({ ok: false, error: String(e) }, 502);
+  }
 }
 
 /* /search?q=<text> — YouTube search through the InnerTube WEB client. */
@@ -456,12 +477,17 @@ export default {
         if (!/^[\w-]{11}$/.test(v)) return json({ ok: false, error: 'bad video id' }, 400);
         return await handleNext(v);
       }
+      if (url.pathname === '/suggest') {
+        const q = (url.searchParams.get('q') || '').trim();
+        if (!q) return json({ ok: true, suggestions: [] });
+        return await handleSuggest(q);
+      }
       if (url.pathname === '/search') {
         const q = (url.searchParams.get('q') || '').trim();
         if (!q) return json({ ok: false, error: 'empty query' }, 400);
         return await handleSearch(q);
       }
-      return new Response('Parami Mp3 Pro Worker OK v4', { headers: Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, CORS) });
+      return new Response('Parami Mp3 Pro Worker OK v5', { headers: Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, CORS) });
     } catch (e) {
       return json({ ok: false, error: String(e && e.message ? e.message : e) }, 500);
     }
