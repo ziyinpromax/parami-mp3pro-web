@@ -117,7 +117,7 @@ var DEFAULT_WORKER = 'https://parami-mp3.ylin59905.workers.dev';
 function workerBase(){ try{ return (localStorage.getItem('mp3pro_worker')||DEFAULT_WORKER).replace(/\/+$/,''); }catch(e){ return DEFAULT_WORKER; } }
 var W = workerBase();
 var $ = function(id){ return document.getElementById(id); };
-var curId = '', curHd = false, curCat = 'home', storeRetries = 0, curDur = 0;
+var curId = '', curHd = false, curCat = 'home', storeRetries = 0, curDur = 0, reStoreTried = false;
 var STORE_K = 'pm-store-7';
 function showWStatus(t){ $('wstatus').textContent = t || ''; }
 /* Playback source = a file stored on THIS site (GitHub Pages). The Worker
@@ -247,7 +247,7 @@ function showView(which){
 }
 
 function openWatch(id, title, author, keepHd, dur){
-  curId = id; storeRetries = 0; curDur = dur || 0;
+  curId = id; storeRetries = 0; reStoreTried = false; curDur = dur || 0;
   if(!keepHd) curHd = false;
   showWMsg(''); showWStatus('');
   showView('watch');
@@ -289,7 +289,7 @@ $('chipHd').onclick = function(){ if(!curHd){ curHd = true; $('chipHd').classNam
 $('vid').addEventListener('error', function(){
   if(!curId || $('viewWatch').style.display === 'none') return;
   var src = $('vid').currentSrc || $('vid').src || '';
-  if((src.indexOf('/files/') >= 0 || src.indexOf('releases/download') >= 0) && storeRetries < 7){
+  if((src.indexOf('/files/') >= 0 || src.indexOf('releases/download') >= 0 || src.indexOf('/b2play') >= 0) && storeRetries < 7){
     storeRetries++;
     showWStatus('ဖိုင် တက်နေပါတယ် — ပြန် စမ်းနေပါတယ် (' + storeRetries + ')...');
     setTimeout(function(){
@@ -297,6 +297,12 @@ $('vid').addEventListener('error', function(){
       var v = $('vid');
       v.src = src; v.load(); v.play().catch(function(){});
     }, 8000);
+    return;
+  }
+  if((src.indexOf('/files/') >= 0 || src.indexOf('releases/download') >= 0 || src.indexOf('/b2play') >= 0) && !reStoreTried){
+    reStoreTried = true; storeRetries = 0;
+    showWStatus('ဖိုင် အသစ် ပြန် ယူနေပါတယ်...');
+    prepareAndPlay(curId);
     return;
   }
   showWMsg('ဒီ video ကို video အဖြစ် မရပါ — အသံ အဖြစ် Parami Mp3 Pro မှာ နားထောင်လို့ ရပါတယ်');
