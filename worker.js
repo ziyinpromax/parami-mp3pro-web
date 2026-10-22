@@ -1,5 +1,5 @@
 // ============================================================
-//  Parami Mp3 Pro — Cloudflare Worker backend (Step 3, v2)
+//  Parami Mp3 Pro — Cloudflare Worker backend (Step 3, v2.1)
 //  Endpoints:
 //    GET /            -> health text
 //    GET /info?v=<id> -> { ok, title, author, duration, audioUrl, expiresAt, source }
@@ -67,7 +67,8 @@ function pickAudio(formats) {
   return audios[0];
 }
 
-/* Ask the InnerTube player API (with this request's own egress IP). */
+/* Ask the InnerTube player API (with this request's own egress IP).
+   Throws on any failure so callers can race clients. */
 async function playerApi(id, c) {
   const r = await fetch('https://www.youtube.com/youtubei/v1/player?key=' + c.key + '&prettyPrint=false', {
     method: 'POST',
@@ -85,32 +86,40 @@ async function playerApi(id, c) {
       contentCheckOk: true,
     }),
   });
-  if (!r.ok) return null;
+  if (!r.ok) throw new Error(c.name + ' HTTP ' + r.status);
   const d = await r.json();
   const status = d.playabilityStatus && d.playabilityStatus.status;
-  if (status && status !== 'OK') return null;
+  if (status && status !== 'OK') throw new Error(c.name + ' ' + status);
   const f = pickAudio((d.streamingData && d.streamingData.adaptiveFormats) || []);
-  if (!f) return null;
-  return { data: d, format: f };
+  if (!f) throw new Error(c.name + ' no audio format');
+  return { data: d, format: f, client: c };
+}
+
+/* Mint a stream URL fast: ANDROID_VR and ANDROID race in parallel and the
+   first success wins (a failed first client no longer costs a serial wait);
+   IOS is the sequential fallback. Returns null when every client fails. */
+async function mintAny(id) {
+  try {
+    return await Promise.any([playerApi(id, CLIENTS[0]), playerApi(id, CLIENTS[1])]);
+  } catch (e) {
+    try { return await playerApi(id, CLIENTS[2]); } catch (e2) { return null; }
+  }
 }
 
 /* ---------- /info : metadata only; the playable URL is /play ---------- */
 async function handleInfo(id, origin) {
-  for (const c of CLIENTS) {
-    try {
-      const res = await playerApi(id, c);
-      if (!res) continue;
-      const vd = res.data.videoDetails || {};
-      return json({
-        ok: true,
-        title: vd.title || '',
-        author: vd.author || '',
-        duration: parseInt(vd.lengthSeconds || '0', 10) || 0,
-        audioUrl: origin + '/play?v=' + encodeURIComponent(id),
-        expiresAt: Date.now() + 6 * 3600000,
-        source: 'worker-' + c.name.toLowerCase(),
-      });
-    } catch (e) { /* next client */ }
+  const res = await mintAny(id);
+  if (res) {
+    const vd = res.data.videoDetails || {};
+    return json({
+      ok: true,
+      title: vd.title || '',
+      author: vd.author || '',
+      duration: parseInt(vd.lengthSeconds || '0', 10) || 0,
+      audioUrl: origin + '/play?v=' + encodeURIComponent(id),
+      expiresAt: Date.now() + 6 * 3600000,
+      source: 'worker-' + res.client.name.toLowerCase(),
+    });
   }
   // Metadata via the converter as a last resort (title only).
   try {
@@ -164,16 +173,17 @@ function streamResponse(up) {
 /* ---------- /play : mint + fetch in ONE request (IP always matches) ---------- */
 async function handlePlay(request, id) {
   const range = request.headers.get('range');
-  for (const c of CLIENTS) {
+  // Two independent mint+fetch rounds before the slow converter fallback:
+  // a transient 403 on one minted URL must not cost a full conversion.
+  for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const res = await playerApi(id, c);
-      if (!res) continue;
-      const headers = { 'User-Agent': c.ua };
+      const res = await mintAny(id);
+      if (!res) break;
+      const headers = { 'User-Agent': res.client.ua };
       if (range) headers['Range'] = range;
       const up = await fetch(res.format.url, { headers: headers, redirect: 'follow' });
       if (up.status === 200 || up.status === 206) return streamResponse(up);
-      // 403 etc. -> fall through to the next client
-    } catch (e) { /* next client */ }
+    } catch (e) { /* try a fresh mint */ }
   }
   // Last resort: the MP3 converter (no IP binding on its links; slower).
   try {
@@ -216,7 +226,7 @@ export default {
         return await handlePlay(request, id);
       }
       if (url.pathname === '/stream') return await handleStream(request, url);
-      return new Response('Parami Mp3 Pro Worker OK v2', { headers: Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, CORS) });
+      return new Response('Parami Mp3 Pro Worker OK v2.1', { headers: Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, CORS) });
     } catch (e) {
       return json({ ok: false, error: String(e && e.message ? e.message : e) }, 500);
     }
