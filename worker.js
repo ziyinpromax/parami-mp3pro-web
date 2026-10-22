@@ -50,6 +50,26 @@ const CLIENTS = [
     ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     client: { clientName: 'WEB_EMBEDDED_PLAYER', clientVersion: '1.20240528.01.00', platform: 'DESKTOP', hl: 'en', gl: 'US' },
   },
+  {
+    name: 'ANDROID_TS', ver: '1.9', num: '30', key: KEY_ANDROID,
+    ua: 'com.google.android.youtube/1.9 (Linux; U; Android 11) gzip',
+    client: { clientName: 'ANDROID_TESTSUITE', clientVersion: '1.9', deviceMake: 'Google', deviceModel: 'Pixel', androidSdkVersion: 30, osName: 'Android', osVersion: '11', platform: 'MOBILE', hl: 'en', gl: 'US' },
+  },
+  {
+    name: 'TV_SIMPLY', ver: '2.0', num: '85', key: '',
+    ua: 'Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/4.0 Chrome/76.0.3809.146 TV Safari/537.36',
+    client: { clientName: 'TVHTML5_SIMPLY_EMBEDDED_PLAYER', clientVersion: '2.0', platform: 'TV', hl: 'en', gl: 'US' },
+  },
+  {
+    name: 'WEB', ver: '2.20240111.09.00', num: '1', key: '',
+    ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    client: { clientName: 'WEB', clientVersion: '2.20240111.09.00', platform: 'DESKTOP', hl: 'en', gl: 'US' },
+  },
+  {
+    name: 'MWEB', ver: '2.20240111.09.00', num: '2', key: '',
+    ua: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+    client: { clientName: 'MWEB', clientVersion: '2.20240111.09.00', platform: 'MOBILE', hl: 'en', gl: 'US' },
+  },
 ];
 
 function b64urlEncode(str) {
@@ -139,18 +159,22 @@ function pickProgressive(formats, hd) {
 let lastMintErrors = [];
 async function mintVideo(id, hd) {
   lastMintErrors = [];
-  const settled = await Promise.allSettled(CLIENTS.map(function (c) { return playerApiRaw(id, c); }));
-  const order = [1, 3, 0, 4, 2];
-  for (const i of order) {
-    const r = settled[i];
-    if (r.status !== 'fulfilled') {
-      lastMintErrors.push(CLIENTS[i].name + ': ' + (r.reason && r.reason.message ? r.reason.message : String(r.reason)));
-      continue;
+  const order = [1, 3, 0, 5, 6, 4, 7, 8, 2];
+  for (let pass = 0; pass < 2; pass++) {
+    const settled = await Promise.allSettled(CLIENTS.map(function (c) { return playerApiRaw(id, c); }));
+    let passErr = [];
+    for (const i of order) {
+      const r = settled[i];
+      if (r.status !== 'fulfilled') {
+        passErr.push(CLIENTS[i].name + ': ' + (r.reason && r.reason.message ? r.reason.message : String(r.reason)));
+        continue;
+      }
+      const sd = r.value.streamingData || {};
+      const f = pickProgressive(sd.formats, hd);
+      if (f) return { data: r.value, format: f, client: CLIENTS[i] };
+      passErr.push(CLIENTS[i].name + ': no muxed format');
     }
-    const sd = r.value.streamingData || {};
-    const f = pickProgressive(sd.formats, hd);
-    if (f) return { data: r.value, format: f, client: CLIENTS[i] };
-    lastMintErrors.push(CLIENTS[i].name + ': no muxed format');
+    lastMintErrors = passErr;
   }
   return null;
 }
@@ -1006,7 +1030,7 @@ export default {
         if (!q) return json({ ok: false, error: 'empty query' }, 400);
         return await handleSearch(q);
       }
-      return new Response('Parami Mp3 Pro Worker OK v11.3', { headers: Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, CORS) });
+      return new Response('Parami Mp3 Pro Worker OK v11.4', { headers: Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, CORS) });
     } catch (e) {
       return json({ ok: false, error: String(e && e.message ? e.message : e) }, 500);
     }
