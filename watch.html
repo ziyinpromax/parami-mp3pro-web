@@ -52,7 +52,8 @@
   .back { display: inline-flex; align-items: center; gap: 6px; margin: 12px 0 4px; padding: 8px 14px;
     border-radius: 999px; border: 1px solid #2dd4ee55; background: #ffffff10; color: #cfe;
     font-size: 14px; cursor: pointer; }
-  video { width: 100%; border-radius: 14px; background: #000; aspect-ratio: 16/9; margin-top: 8px; }
+  video { width: 100%; border-radius: 14px; background: #000; aspect-ratio: 16/9; margin-top: 8px; object-fit: contain; }
+  video:fullscreen { width: 100%; height: 100%; aspect-ratio: auto; border-radius: 0; object-fit: contain; background: #000; }
   .ptitle { font-size: 17px; font-weight: 700; margin: 12px 2px 2px; line-height: 1.4; }
   .pauthor { color: #aab; font-size: 13px; margin: 0 2px 6px; }
   .qrow { display: flex; gap: 8px; align-items: center; margin: 10px 0 4px; flex-wrap: wrap; }
@@ -98,6 +99,7 @@
   <div id="viewWatch" style="display:none">
     <span class="back" id="backBtn">← ပြန်သွား</span>
     <video id="vid" controls playsinline></video>
+    <audio id="aud" preload="auto" style="display:none"></audio>
     <div class="ptitle" id="ptitle"></div>
     <div class="pauthor" id="pauthor"></div>
     <div class="qrow">
@@ -105,6 +107,8 @@
       <span class="chip" id="chipHd">720p</span>
       <span class="chip" id="btnPrev">⏮ အရင်</span>
       <span class="chip" id="btnNext">⏭ နောက်</span>
+      <span class="chip" id="btnBg">🎧 Background</span>
+      <span class="chip" id="btnFs">⛶ Fullscreen</span>
       <a class="mp3link" href="./">🎵 အသံသာ → Parami Mp3 Pro</a>
     </div>
     <div class="status" id="wstatus" style="min-height:0;margin:6px 0"></div>
@@ -121,6 +125,7 @@ var W = workerBase();
 var $ = function(id){ return document.getElementById(id); };
 var curId = '', curHd = false, curCat = 'home', storeRetries = 0, curDur = 0, reStoreTried = false;
 var queue = [], queueIdx = -1, lastGrid = [], relItems = [];
+var bgMode = false, pendingSeek = 0, audioDeadId = '';
 var STORE_K = 'pm-store-7';
 function showWStatus(t){ $('wstatus').textContent = t || ''; }
 /* Playback source = a file stored on THIS site (GitHub Pages). The Worker
@@ -128,6 +133,7 @@ function showWStatus(t){ $('wstatus').textContent = t || ''; }
    straight from github.io — the host his browser can actually stream. */
 function prepareAndPlay(id){
   showWMsg('');
+  if(bgMode && audioDeadId !== id){ prepareAudio(id, 0); return; }
   var tries = 0;
   var bigMode = (curDur >= 600);
   function attempt(){
@@ -143,6 +149,11 @@ function prepareAndPlay(id){
           showWStatus(d.cached ? '' : 'ပြင်ဆင်ပြီး — ဖွင့်နေပါတယ်...');
           var v = $('vid');
           v.src = d.url;
+          setMediaSession(id);
+          if(pendingSeek > 0){
+            var ps = pendingSeek; pendingSeek = 0;
+            v.addEventListener('loadedmetadata', function h(){ v.removeEventListener('loadedmetadata', h); try{ v.currentTime = Math.min(ps, (v.duration || ps) - 1); }catch(e){} });
+          }
           v.play().catch(function(){});
           return;
         }
@@ -159,6 +170,58 @@ function prepareAndPlay(id){
       });
   }
   attempt();
+}
+
+function setMediaSession(id){
+  try {
+    if(!('mediaSession' in navigator)) return;
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: $('ptitle').textContent || 'Parami Tube',
+      artist: $('pauthor').textContent || '',
+      artwork: [{ src: 'https://i.ytimg.com/vi/' + id + '/hqdefault.jpg', sizes: '480x360', type: 'image/jpeg' }]
+    });
+    navigator.mediaSession.setActionHandler('previoustrack', function(){ $('btnPrev').onclick(); });
+    navigator.mediaSession.setActionHandler('nexttrack', function(){ $('btnNext').onclick(); });
+    navigator.mediaSession.setActionHandler('play', function(){ var a = bgMode ? $('aud') : $('vid'); a.play().catch(function(){}); });
+    navigator.mediaSession.setActionHandler('pause', function(){ var a = bgMode ? $('aud') : $('vid'); a.pause(); });
+  } catch(e){}
+}
+
+function prepareAudio(id, seekTo){
+  var tries = 0;
+  showWStatus('🎧 အသံ ပြင်ဆင်နေပါတယ်...');
+  (function attempt(){
+    tries++;
+    fetch(W + '/store?v=' + encodeURIComponent(id) + '&kind=audio&k=' + STORE_K)
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if(curId !== id) return;
+        if(d && d.ok && d.url){
+          var a = $('aud');
+          a.src = d.url;
+          setMediaSession(id);
+          a.addEventListener('loadedmetadata', function h(){
+            a.removeEventListener('loadedmetadata', h);
+            if(seekTo > 0){ try{ a.currentTime = Math.min(seekTo, (a.duration || seekTo) - 1); }catch(e){} }
+          });
+          a.play().catch(function(){});
+          showWStatus('🎧 Background play — screen ပိတ်ထားလို့ ရပါတယ်');
+          return;
+        }
+        if(tries < 3){ setTimeout(function(){ if(curId === id) attempt(); }, 4000); return; }
+        audioDeadId = id;
+        showWStatus('');
+        showWMsg('ဒီ video အတွက် 🎧 Background play မရပါ (အသံဖိုင် ကြီးလွန်း/မရ) — video အဖြစ် ပြန် ဖွင့်ပေးထားပါတယ်');
+        prepareAndPlay(id);
+      })
+      .catch(function(){
+        if(curId !== id) return;
+        if(tries < 3){ setTimeout(function(){ if(curId === id) attempt(); }, 4000); return; }
+        audioDeadId = id;
+        showWStatus('');
+        prepareAndPlay(id);
+      });
+  })();
 }
 
 function parseId(text){
@@ -254,11 +317,11 @@ function showView(which){
   $('viewHome').style.display = which === 'home' ? 'block' : 'none';
   $('viewWatch').style.display = which === 'watch' ? 'block' : 'none';
   $('chips').style.display = which === 'home' ? 'flex' : 'none';
-  if(which === 'home'){ var v = $('vid'); try{ v.pause(); v.removeAttribute('src'); v.load(); }catch(e){} }
+  if(which === 'home'){ var v = $('vid'); try{ v.pause(); v.removeAttribute('src'); v.load(); }catch(e){} var a2 = $('aud'); try{ a2.pause(); a2.removeAttribute('src'); a2.load(); }catch(e){} }
 }
 
 function openWatch(id, title, author, keepHd, dur){
-  curId = id; storeRetries = 0; reStoreTried = false; curDur = dur || 0;
+  curId = id; storeRetries = 0; reStoreTried = false; curDur = dur || 0; audioDeadId = '';
   if(!keepHd) curHd = false;
   showWMsg(''); showWStatus('');
   showView('watch');
@@ -309,6 +372,37 @@ function playQueue(i){
   openWatch(it.id, it.title, it.author, true, it.duration);
 }
 $('btnPrev').onclick = function(){ playQueue(queueIdx - 1); };
+$('aud').addEventListener('ended', function(){ if(queueIdx >= 0 && queueIdx < queue.length - 1) playQueue(queueIdx + 1); });
+$('aud').addEventListener('error', function(){
+  if(!bgMode || !curId || audioDeadId === curId) return;
+  audioDeadId = curId;
+  showWMsg('🎧 အသံ ဖွင့် မရပါ — video အဖြစ် ပြန် ဖွင့်ပေးထားပါတယ်');
+  prepareAndPlay(curId);
+});
+$('btnBg').onclick = function(){
+  bgMode = !bgMode;
+  $('btnBg').className = 'chip' + (bgMode ? ' on' : '');
+  if(!curId) return;
+  if(bgMode){
+    var t = 0; try{ t = $('vid').currentTime || 0; }catch(e){}
+    try{ $('vid').pause(); }catch(e){}
+    prepareAudio(curId, t);
+  } else {
+    var t2 = 0; try{ t2 = $('aud').currentTime || 0; }catch(e){}
+    try{ $('aud').pause(); }catch(e){}
+    pendingSeek = t2;
+    showWStatus('');
+    prepareAndPlay(curId);
+  }
+};
+$('btnFs').onclick = function(){
+  var v = $('vid');
+  try {
+    if(v.requestFullscreen){ var pr = v.requestFullscreen(); if(pr && pr.catch) pr.catch(function(){}); }
+    else if(v.webkitEnterFullscreen){ v.webkitEnterFullscreen(); }
+    if(screen.orientation && screen.orientation.lock){ var lp = screen.orientation.lock('landscape'); if(lp && lp.catch) lp.catch(function(){}); }
+  } catch(e){}
+};
 $('btnNext').onclick = function(){ playQueue(queueIdx + 1); };
 $('vid').addEventListener('ended', function(){ if(queueIdx >= 0 && queueIdx < queue.length - 1) playQueue(queueIdx + 1); });
 $('chipSd').onclick = function(){ if(curHd){ curHd = false; $('chipSd').className='chip on'; $('chipHd').className='chip'; if(curId) openWatch(curId, $('ptitle').textContent, $('pauthor').textContent, true, curDur); } };
