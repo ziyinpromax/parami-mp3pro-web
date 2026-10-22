@@ -105,6 +105,7 @@
       <span class="chip" id="chipHd">720p</span>
       <a class="mp3link" href="./">🎵 အသံသာ → Parami Mp3 Pro</a>
     </div>
+    <div class="status" id="wstatus" style="min-height:0;margin:6px 0"></div>
     <div class="msg" id="wmsg"></div>
     <div class="sect">ဆက် ကြည့်ရန်</div>
     <div class="rows" id="related"></div>
@@ -116,7 +117,30 @@ var DEFAULT_WORKER = 'https://parami-mp3.ylin59905.workers.dev';
 function workerBase(){ try{ return (localStorage.getItem('mp3pro_worker')||DEFAULT_WORKER).replace(/\/+$/,''); }catch(e){ return DEFAULT_WORKER; } }
 var W = workerBase();
 var $ = function(id){ return document.getElementById(id); };
-var curId = '', curHd = false, curCat = 'home';
+var curId = '', curHd = false, curCat = 'home', storeRetries = 0;
+var STORE_K = 'pm-store-7';
+function showWStatus(t){ $('wstatus').textContent = t || ''; }
+/* Playback source = a file stored on THIS site (GitHub Pages). The Worker
+   fetches the video once and saves it into the repo; afterwards it plays
+   straight from github.io — the host his browser can actually stream. */
+function prepareAndPlay(id){
+  showWMsg(''); showWStatus('ပြင်ဆင်နေပါတယ် — ပထမ အကြိမ် ဆို ခဏ စောင့်ပါ...');
+  fetch(W + '/store?v=' + encodeURIComponent(id) + '&kind=video&hd=' + (curHd ? 1 : 0) + '&k=' + STORE_K)
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if (curId !== id) return;
+      if (d && d.ok && d.url){
+        showWStatus(d.cached ? '' : 'ပြင်ဆင်ပြီး — ဖွင့်နေပါတယ်...');
+        var v = $('vid');
+        v.src = d.url;
+        v.play().catch(function(){});
+      } else {
+        showWStatus('');
+        showWMsg((d && d.error) ? String(d.error) : 'ဒီ video ကို ပြင် မရပါ — ခဏနေ ပြန် စမ်းပါ');
+      }
+    })
+    .catch(function(){ if (curId === id){ showWStatus(''); showWMsg('အင်တာနက် စစ်ပြီး ပြန် စမ်းပါ'); } });
+}
 
 function parseId(text){
   if(!text) return '';
@@ -206,17 +230,17 @@ function showView(which){
   if(which === 'home'){ var v = $('vid'); try{ v.pause(); v.removeAttribute('src'); v.load(); }catch(e){} }
 }
 
-function openWatch(id, title, author){
-  curId = id;
-  vidFallbackTried = false;
-  showWMsg('');
+function openWatch(id, title, author, keepHd){
+  curId = id; storeRetries = 0;
+  if(!keepHd) curHd = false;
+  showWMsg(''); showWStatus('');
   showView('watch');
+  $('chipSd').className = 'chip' + (curHd ? '' : ' on');
+  $('chipHd').className = 'chip' + (curHd ? ' on' : '');
   $('ptitle').textContent = title || '';
   $('pauthor').textContent = author || '';
   $('related').innerHTML = '';
-  var vid = $('vid');
-  vid.src = W + '/watch?v=' + encodeURIComponent(id) + (curHd ? '&hd=1' : '');
-  vid.play().catch(function(){});
+  prepareAndPlay(id);
   window.scrollTo(0, 0);
   if(!title){
     fetch(W + '/info?v=' + encodeURIComponent(id)).then(function(r){ return r.json(); }).then(function(d){
@@ -244,14 +268,19 @@ document.querySelectorAll('#chips .chip').forEach(function(c){
   c.onclick = function(){ loadFeed(c.getAttribute('data-cat')); };
 });
 $('backBtn').onclick = function(){ showView('home'); };
-$('chipSd').onclick = function(){ if(curHd){ curHd = false; $('chipSd').className='chip on'; $('chipHd').className='chip'; if(curId) openWatch(curId, $('ptitle').textContent, $('pauthor').textContent); } };
-$('chipHd').onclick = function(){ if(!curHd){ curHd = true; $('chipHd').className='chip on'; $('chipSd').className='chip'; if(curId) openWatch(curId, $('ptitle').textContent, $('pauthor').textContent); } };
+$('chipSd').onclick = function(){ if(curHd){ curHd = false; $('chipSd').className='chip on'; $('chipHd').className='chip'; if(curId) openWatch(curId, $('ptitle').textContent, $('pauthor').textContent, true); } };
+$('chipHd').onclick = function(){ if(!curHd){ curHd = true; $('chipHd').className='chip on'; $('chipSd').className='chip'; if(curId) openWatch(curId, $('ptitle').textContent, $('pauthor').textContent, true); } };
 $('vid').addEventListener('error', function(){
   if(!curId || $('viewWatch').style.display === 'none') return;
-  if(!vidFallbackTried){
-    vidFallbackTried = true;
-    showWMsg('ပထမ လမ်းကြောင် မရပါ — နောက် လမ်းကြောင် နဲ့ ပြန် စမ်းနေပါတယ်...');
-    tryAltVideo(curId);
+  var src = $('vid').currentSrc || $('vid').src || '';
+  if(src.indexOf('/files/') >= 0 && storeRetries < 7){
+    storeRetries++;
+    showWStatus('ဖိုင် တက်နေပါတယ် — ပြန် စမ်းနေပါတယ် (' + storeRetries + ')...');
+    setTimeout(function(){
+      if(!curId) return;
+      var v = $('vid');
+      v.src = src; v.load(); v.play().catch(function(){});
+    }, 8000);
     return;
   }
   showWMsg('ဒီ video ကို video အဖြစ် မရပါ — အသံ အဖြစ် Parami Mp3 Pro မှာ နားထောင်လို့ ရပါတယ်');
@@ -294,29 +323,6 @@ $('q').addEventListener('input', function(){
 });
 $('q').addEventListener('blur', function(){ setTimeout(hideSuggest, 250); });
 
-/* --- video rescue route: if the Worker stream fails in this browser
-   (it does on his phone), retry the same video through the Invidious
-   proxy route, whose streams his phone has played before --- */
-var vidFallbackTried = false;
-function tryAltVideo(id){
-  fetch('https://invidious.f5.si/api/v1/videos/' + encodeURIComponent(id) + '?local=true')
-    .then(function(r){ return r.json(); })
-    .then(function(d){
-      var fs = (d && d.formatStreams) || [];
-      var pick = null;
-      for(var i = 0; i < fs.length; i++){ if(String(fs[i].itag) === '18'){ pick = fs[i]; break; } }
-      if(!pick && fs.length) pick = fs[0];
-      if(pick && pick.url && curId === id){
-        showWMsg('');
-        var v = $('vid');
-        v.src = pick.url;
-        v.play().catch(function(){});
-      } else {
-        showWMsg('ဒီ video ကို video အဖြစ် မရပါ — အသံ အဖြစ် Parami Mp3 Pro မှာ နားထောင်လို့ ရပါတယ်');
-      }
-    })
-    .catch(function(){ showWMsg('ဒီ video ကို video အဖြစ် မရပါ — အသံ အဖြစ် Parami Mp3 Pro မှာ နားထောင်လို့ ရပါတယ်'); });
-}
 </script>
 </body>
 </html>
