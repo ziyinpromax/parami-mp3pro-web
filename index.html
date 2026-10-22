@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<link rel="preconnect" href="https://parami-mp3.ylin59905.workers.dev" crossorigin>
 <title>Parami Mp3 Pro</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -1177,11 +1178,6 @@ async function playTrack(id, ctxIds, auto){
   /* native path */
   var q=ids.map(function(x){ return findTrack(x); }).filter(function(z){ return z&&!z.local; });
   if(!q.length) q=[t];
-  for(var i=0;i<q.length;i++){
-    var lifeI = (q[i].source && q[i].source.indexOf('loader')>=0) ? 5*60000 : 2*3600000;
-    var needed = !q[i].audioUrl || isExpired(q[i]) || !q[i].urlAt || (Date.now()-q[i].urlAt > lifeI);
-    if(needed){ try{ await ensureFreshUrl(q[i]); }catch(e){} }
-  }
   queue=ids.slice();
   qIdx=Math.max(0, queue.indexOf(id));
   current=t; updatePlayerUI(current); setPlayIcons(false);
