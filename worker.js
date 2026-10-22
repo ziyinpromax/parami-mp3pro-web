@@ -183,13 +183,15 @@ async function mintVideo(id, hd) {
    first success wins (a failed first client no longer costs a serial wait);
    IOS is the sequential fallback. Returns null when every client fails. */
 async function mintAny(id) {
-  try {
-    return await Promise.any([playerApi(id, CLIENTS[0]), playerApi(id, CLIENTS[1])]);
-  } catch (e) {
-    try { return await playerApi(id, CLIENTS[2]); } catch (e2) {
-      try { return await playerApi(id, CLIENTS[3]); } catch (e3) { return null; }
-    }
+  lastMintErrors = [];
+  const order = [1, 0, 5, 3, 6, 2, 4, 7, 8];
+  const settled = await Promise.allSettled(CLIENTS.map(function (c) { return playerApi(id, c); }));
+  for (const i of order) {
+    const r = settled[i];
+    if (r.status === 'fulfilled') return r.value;
+    lastMintErrors.push(CLIENTS[i].name + ': ' + (r.reason && r.reason.message ? r.reason.message : String(r.reason)));
   }
+  return null;
 }
 
 /* ---------- /info : metadata only; the playable URL is /play ---------- */
@@ -550,8 +552,9 @@ async function handleStoreBigB2(env, url) {
   if (!/^[\w-]{11}$/.test(id)) return json({ ok: false, error: 'bad video id' }, 400);
   if (url.searchParams.get('k') !== STORE_KEY) return json({ ok: false, error: 'bad key' }, 403);
   if (!env || !env.B2_KEY_ID || !env.B2_APP_KEY) return json({ ok: false, error: 'big store not configured' }, 500);
-  const hd = url.searchParams.get('hd') === '1';
-  const name = id + (hd ? '-hd' : '') + '.mp4';
+  const kind = url.searchParams.get('kind') === 'audio' ? 'audio' : 'video';
+  const hd = kind === 'video' && url.searchParams.get('hd') === '1';
+  const name = kind === 'audio' ? id + '.m4a' : id + (hd ? '-hd' : '') + '.mp4';
   const dlUrl = url.origin + '/b2play?name=' + encodeURIComponent(name) + '&k=' + STORE_KEY;
   try {
     const signedProbe = await b2PresignGet(env, name, 120);
@@ -559,7 +562,7 @@ async function handleStoreBigB2(env, url) {
     if (probe.status === 200 || probe.status === 206) return json({ ok: true, url: dlUrl, cached: true });
     let lastErr = '';
     for (let attempt = 0; attempt < 2; attempt++) {
-      const m = await mintVideo(id, hd);
+      const m = kind === 'audio' ? await mintAny(id) : await mintVideo(id, hd);
       if (!m) { lastErr = lastMintErrors.length ? lastMintErrors.join('; ') : 'mint failed'; continue; }
       let total = parseInt(m.format.contentLength || '0', 10);
       if (!total) {
@@ -1030,7 +1033,7 @@ export default {
         if (!q) return json({ ok: false, error: 'empty query' }, 400);
         return await handleSearch(q);
       }
-      return new Response('Parami Mp3 Pro Worker OK v11.5', { headers: Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, CORS) });
+      return new Response('Parami Mp3 Pro Worker OK v11.6.2', { headers: Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, CORS) });
     } catch (e) {
       return json({ ok: false, error: String(e && e.message ? e.message : e) }, 500);
     }
