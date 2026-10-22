@@ -289,7 +289,7 @@ $('chipHd').onclick = function(){ if(!curHd){ curHd = true; $('chipHd').classNam
 $('vid').addEventListener('error', function(){
   if(!curId || $('viewWatch').style.display === 'none') return;
   var src = $('vid').currentSrc || $('vid').src || '';
-  if((src.indexOf('/files/') >= 0 || src.indexOf('releases/download') >= 0 || src.indexOf('/b2play') >= 0) && storeRetries < 7){
+  if((src.indexOf('/files/') >= 0 || src.indexOf('releases/download') >= 0 || src.indexOf('/b2play') >= 0 || src.indexOf('/tgplay') >= 0) && storeRetries < 7){
     storeRetries++;
     showWStatus('ဖိုင် တက်နေပါတယ် — ပြန် စမ်းနေပါတယ် (' + storeRetries + ')...');
     setTimeout(function(){
@@ -299,7 +299,7 @@ $('vid').addEventListener('error', function(){
     }, 8000);
     return;
   }
-  if((src.indexOf('/files/') >= 0 || src.indexOf('releases/download') >= 0 || src.indexOf('/b2play') >= 0) && !reStoreTried){
+  if((src.indexOf('/files/') >= 0 || src.indexOf('releases/download') >= 0 || src.indexOf('/b2play') >= 0 || src.indexOf('/tgplay') >= 0) && !reStoreTried){
     reStoreTried = true; storeRetries = 0;
     showWStatus('ဖိုင် အသစ် ပြန် ယူနေပါတယ်...');
     prepareAndPlay(curId);
