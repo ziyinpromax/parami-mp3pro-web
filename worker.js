@@ -407,6 +407,301 @@ function bytesToB64(buf) {
   return btoa(bin);
 }
 
+/* /storebig — /store for files over the 40 MB Pages cap: the media is
+   STREAMED from YouTube straight into a GitHub Release asset (2 GB per
+   file) in a dedicated repo; nothing is buffered in the Worker, so
+   hour-long videos fit. The playback URL is the stable release download
+   URL — verified to play inline in his Chrome (2026-10-22). */
+const MEDIA_REPO = 'ziyinpromax/parami-mp3pro-media';
+
+async function ensureMediaRelease(env) {
+  const r = await ghApi(env, 'GET', '/repos/' + MEDIA_REPO + '/releases/tags/media');
+  if (r.status === 200) { const d = await r.json(); if (d && d.id) return d; }
+  const made = await ghApi(env, 'POST', '/repos/' + MEDIA_REPO + '/releases', { tag_name: 'media', name: 'Media files', body: 'Long videos for Parami Tube' });
+  const d2 = await made.json().catch(function () { return null; });
+  if (d2 && d2.id) return d2;
+  throw new Error('media release unavailable (HTTP ' + made.status + ')');
+}
+
+async function handleStoreBig(env, url) {
+  const id = url.searchParams.get('v') || '';
+  if (!/^[\w-]{11}$/.test(id)) return json({ ok: false, error: 'bad video id' }, 400);
+  if (url.searchParams.get('k') !== STORE_KEY) return json({ ok: false, error: 'bad key' }, 403);
+  if (!env || !env.GH_TOKEN) return json({ ok: false, error: 'store not configured' }, 500);
+  const hd = url.searchParams.get('hd') === '1';
+  const name = id + (hd ? '-hd' : '') + '.mp4';
+  const dlUrl = 'https://github.com/' + MEDIA_REPO + '/releases/download/media/' + name;
+  try {
+    const probe = await fetch(dlUrl, { method: 'GET', headers: { 'Range': 'bytes=0-0' }, redirect: 'manual' });
+    if (probe.status === 302 || probe.status === 200 || probe.status === 206) {
+      return json({ ok: true, url: dlUrl, cached: true });
+    }
+    const rel = await ensureMediaRelease(env);
+    let lastErr = '';
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const m = await mintVideo(id, hd);
+      if (!m) { lastErr = lastMintErrors.length ? lastMintErrors.join('; ') : 'mint failed'; continue; }
+      const up = await fetch(m.format.url, { headers: { 'User-Agent': m.client.ua } });
+      if (!up.ok || !up.body) { lastErr = 'media HTTP ' + up.status; continue; }
+      const len = parseInt(up.headers.get('content-length') || m.format.contentLength || '0', 10);
+      if (!len) { lastErr = 'unknown media length'; continue; }
+      const post = await fetch('https://uploads.github.com/repos/' + MEDIA_REPO + '/releases/' + rel.id + '/assets?name=' + encodeURIComponent(name), {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + env.GH_TOKEN,
+          'Accept': 'application/vnd.github+json',
+          'Content-Type': 'video/mp4',
+          'User-Agent': 'parami-worker',
+        },
+        body: up.body.pipeThrough(new FixedLengthStream(len)),
+        duplex: 'half',
+      });
+      if (post.status === 201) {
+        const a = await post.json().catch(function () { return {}; });
+        return json({ ok: true, url: dlUrl, cached: false, bytes: a.size || len });
+      }
+      if (post.status === 422) return json({ ok: true, url: dlUrl, cached: true });
+      const t = await post.text().catch(function () { return ''; });
+      lastErr = 'github upload HTTP ' + post.status + ' ' + t.slice(0, 120);
+    }
+    return json({ ok: false, error: 'YouTube ကနေ ဒီ video ကို ယူမရပါ [' + lastErr + ']' }, 502);
+  } catch (e) {
+    return json({ ok: false, error: String(e) }, 500);
+  }
+}
+
+const B2_BUCKET = 'parami-media';
+const B2_S3_HOST = 's3.us-east-005.backblazeb2.com';
+const B2_REGION = 'us-east-005';
+const B2_PART = 25 * 1024 * 1024;
+
+function b2Hex(buf) {
+  return Array.from(new Uint8Array(buf)).map(function (b) { return b.toString(16).padStart(2, '0'); }).join('');
+}
+async function b2Sha256(data) {
+  return b2Hex(await crypto.subtle.digest('SHA-256', data));
+}
+async function b2Hmac(key, msg) {
+  const k = await crypto.subtle.importKey('raw', typeof key === 'string' ? new TextEncoder().encode(key) : key, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  return new Uint8Array(await crypto.subtle.sign('HMAC', k, new TextEncoder().encode(msg)));
+}
+
+/* Minimal SigV4 signer for B2's S3-compatible API. Returns headers to merge. */
+async function b2SignedHeaders(env, method, path, query, payloadHash, extra) {
+  const now = new Date();
+  const amzDate = now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+  const dateStamp = amzDate.slice(0, 8);
+  const headers = Object.assign({
+    'host': B2_S3_HOST,
+    'x-amz-content-sha256': payloadHash,
+    'x-amz-date': amzDate,
+  }, extra || {});
+  const names = Object.keys(headers).sort();
+  const canonHeaders = names.map(function (n) { return n + ':' + String(headers[n]).trim(); }).join('\n') + '\n';
+  let canonQuery = query || '';
+  if (canonQuery) canonQuery = canonQuery.split('&').map(function (t) { return t.indexOf('=') < 0 ? t + '=' : t; }).join('&');
+  const canon = [method, path, canonQuery, canonHeaders, names.join(';'), payloadHash].join('\n');
+  const scope = dateStamp + '/' + B2_REGION + '/s3/aws4_request';
+  const toSign = 'AWS4-HMAC-SHA256\n' + amzDate + '\n' + scope + '\n' + await b2Sha256(new TextEncoder().encode(canon));
+  let k = await b2Hmac('AWS4' + env.B2_APP_KEY, dateStamp);
+  k = await b2Hmac(k, B2_REGION);
+  k = await b2Hmac(k, 's3');
+  k = await b2Hmac(k, 'aws4_request');
+  const sig = b2Hex(await b2Hmac(k, toSign));
+  headers['Authorization'] = 'AWS4-HMAC-SHA256 Credential=' + env.B2_KEY_ID + '/' + scope + ', SignedHeaders=' + names.join(';') + ', Signature=' + sig;
+  return headers;
+}
+
+async function b2Req(env, method, key, query, body, payloadHash, extra) {
+  const path = '/' + B2_BUCKET + '/' + key.split('/').map(encodeURIComponent).join('/');
+  const qs = query || '';
+  const headers = await b2SignedHeaders(env, method, path, qs, payloadHash || EMPTY_SHA, extra);
+  return fetch('https://' + B2_S3_HOST + path + (qs ? '?' + qs : ''), { method: method, headers: headers, body: body });
+}
+
+/* Replaces the GitHub-upload half of handleStoreBig: same mint behaviour,
+   but the media lands in B2 as <id>.mp4 / <id>-hd.mp4. */
+async function handleStoreBigB2(env, url) {
+  const id = url.searchParams.get('v') || '';
+  if (!/^[\w-]{11}$/.test(id)) return json({ ok: false, error: 'bad video id' }, 400);
+  if (url.searchParams.get('k') !== STORE_KEY) return json({ ok: false, error: 'bad key' }, 403);
+  if (!env || !env.B2_KEY_ID || !env.B2_APP_KEY) return json({ ok: false, error: 'big store not configured' }, 500);
+  const hd = url.searchParams.get('hd') === '1';
+  const name = id + (hd ? '-hd' : '') + '.mp4';
+  const dlUrl = url.origin + '/b2play?name=' + encodeURIComponent(name) + '&k=' + STORE_KEY;
+  try {
+    const probe = await b2Req(env, 'HEAD', name, '', null, EMPTY_SHA);
+    if (probe.ok) return json({ ok: true, url: dlUrl, cached: true });
+    let lastErr = '';
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const m = await mintVideo(id, hd);
+      if (!m) { lastErr = lastMintErrors.length ? lastMintErrors.join('; ') : 'mint failed'; continue; }
+      let total = parseInt(m.format.contentLength || '0', 10);
+      if (!total) {
+        for (let ht = 0; ht < 4 && !total; ht++) {
+          try {
+            const hp = await fetch(m.format.url, { headers: { 'User-Agent': m.client.ua, 'Range': 'bytes=0-1023' } });
+            const cr = hp.headers.get('content-range');
+            if ((hp.status === 206 || hp.status === 200) && cr && cr.indexOf('/') > 0) total = parseInt(cr.split('/').pop(), 10) || 0;
+            else if (hp.status === 200) total = parseInt(hp.headers.get('content-length') || '0', 10) || 0;
+          } catch (e) {}
+        }
+      }
+      if (!total) { lastErr = 'unknown media length'; continue; }
+      const init = await b2Req(env, 'POST', name, 'uploads', null, EMPTY_SHA);
+      if (!init.ok) { lastErr = 'B2 init HTTP ' + init.status; continue; }
+      const initXml = await init.text();
+      const upId = (initXml.match(/<UploadId>([^<]+)<\/UploadId>/) || [])[1];
+      if (!upId) { lastErr = 'B2 init: no upload id'; continue; }
+      const parts = [];
+      let failed = '';
+      const nParts = Math.ceil(total / B2_PART);
+      for (let pn = 1; pn <= nParts && !failed; pn++) {
+        const start = (pn - 1) * B2_PART;
+        const end = Math.min(total, start + B2_PART) - 1;
+        let up = await fetch(m.format.url, { headers: { 'User-Agent': m.client.ua, 'Range': 'bytes=' + start + '-' + end } });
+        if (!up.ok && up.status !== 206) up = await fetch(m.format.url, { headers: { 'User-Agent': m.client.ua, 'Range': 'bytes=' + start + '-' + end } });
+        if (!up.ok && up.status !== 206) { failed = 'media HTTP ' + up.status + ' at part ' + pn; break; }
+        const buf = await up.arrayBuffer();
+        const hash = await b2Sha256(buf);
+        const put = await b2Req(env, 'PUT', name, 'partNumber=' + pn + '&uploadId=' + encodeURIComponent(upId), buf, hash);
+        if (!put.ok) { failed = 'B2 part ' + pn + ' HTTP ' + put.status; break; }
+        parts.push({ n: pn, etag: (put.headers.get('etag') || '').replace(/"/g, '') });
+      }
+      if (failed) {
+        await b2Req(env, 'DELETE', name, 'uploadId=' + encodeURIComponent(upId), null, EMPTY_SHA);
+        lastErr = failed;
+        continue;
+      }
+      const xml = '<CompleteMultipartUpload>' + parts.map(function (p) {
+        return '<Part><PartNumber>' + p.n + '</PartNumber><ETag>"' + p.etag + '"</ETag></Part>';
+      }).join('') + '</CompleteMultipartUpload>';
+      const done = await b2Req(env, 'POST', name, 'uploadId=' + encodeURIComponent(upId), xml, await b2Sha256(new TextEncoder().encode(xml)));
+      if (!done.ok) { lastErr = 'B2 complete HTTP ' + done.status; continue; }
+      await poolAdd(env, name, 'b2', total);
+      return json({ ok: true, url: dlUrl, cached: false, bytes: total });
+    }
+    return json({ ok: false, error: 'YouTube ကနေ ဒီ video ကို ယူမရပါ [' + lastErr + ']' }, 502);
+  } catch (e) {
+    return json({ ok: false, error: String(e) }, 500);
+  }
+}
+
+const EMPTY_SHA = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+
+function b2PlayUrl(origin, name) {
+  return origin + '/b2play?name=' + encodeURIComponent(name) + '&k=' + STORE_KEY;
+}
+
+/* Buffered single PUT (spillover for files /store already holds in memory). */
+async function b2PutBuffer(env, name, buf, ctype) {
+  const hash = await b2Sha256(buf);
+  const r = await b2Req(env, 'PUT', name, '', buf, hash);
+  return r.ok;
+}
+
+/* SigV4 presigned GET so the phone can stream from the private bucket. */
+async function b2PresignGet(env, name, expiresSec) {
+  const now = new Date();
+  const amzDate = now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+  const dateStamp = amzDate.slice(0, 8);
+  const scope = dateStamp + '/' + B2_REGION + '/s3/aws4_request';
+  const path = '/' + B2_BUCKET + '/' + name.split('/').map(encodeURIComponent).join('/');
+  const params = {
+    'X-Amz-Algorithm': 'AWS4-HMAC-SHA256',
+    'X-Amz-Credential': env.B2_KEY_ID + '/' + scope,
+    'X-Amz-Date': amzDate,
+    'X-Amz-Expires': String(expiresSec),
+    'X-Amz-SignedHeaders': 'host',
+  };
+  const qs = Object.keys(params).sort().map(function (k) {
+    return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
+  }).join('&');
+  const canon = ['GET', path, qs, 'host:' + B2_S3_HOST + '\n', 'host', 'UNSIGNED-PAYLOAD'].join('\n');
+  const toSign = 'AWS4-HMAC-SHA256\n' + amzDate + '\n' + scope + '\n' + await b2Sha256(new TextEncoder().encode(canon));
+  let k = await b2Hmac('AWS4' + env.B2_APP_KEY, dateStamp);
+  k = await b2Hmac(k, B2_REGION);
+  k = await b2Hmac(k, 's3');
+  k = await b2Hmac(k, 'aws4_request');
+  const sig = b2Hex(await b2Hmac(k, toSign));
+  return 'https://' + B2_S3_HOST + path + '?' + qs + '&X-Amz-Signature=' + sig;
+}
+
+async function handleB2Play(env, url) {
+  if (url.searchParams.get('k') !== STORE_KEY) return json({ ok: false, error: 'bad key' }, 403);
+  const name = url.searchParams.get('name') || '';
+  if (!/^[\w.-]+$/.test(name)) return json({ ok: false, error: 'bad name' }, 400);
+  if (!env || !env.B2_KEY_ID) return json({ ok: false, error: 'b2 not configured' }, 500);
+  const signed = await b2PresignGet(env, name, 6 * 24 * 3600);
+  return new Response(null, { status: 302, headers: { 'Location': signed, 'Access-Control-Allow-Origin': '*' } });
+}
+
+/* ---------- storage pool manifest + cleanup ----------
+   pool.json in the site repo tracks every stored file {n, b, s, t}.
+   The user's design: several backends act as one pool; a full backend
+   spills to the next, and its oldest files get cleared so it can serve
+   again. A cleared video simply re-stores from YouTube on the next tap. */
+async function poolRead(env) {
+  try {
+    const r = await ghApi(env, 'GET', '/repos/' + GH_REPO + '/contents/pool.json');
+    if (r.status !== 200) return { files: [], sha: null };
+    const d = await r.json();
+    const txt = decodeURIComponent(escape(atob((d.content || '').replace(/\s/g, ''))));
+    return { files: (JSON.parse(txt).files || []), sha: d.sha };
+  } catch (e) { return { files: [], sha: null }; }
+}
+async function poolWrite(env, files, sha) {
+  const body = { message: 'pool update', content: btoa(JSON.stringify({ files: files })) };
+  if (sha) body.sha = sha;
+  await ghApi(env, 'PUT', '/repos/' + GH_REPO + '/contents/pool.json', body);
+}
+async function poolAdd(env, name, backend, size) {
+  try {
+    const p = await poolRead(env);
+    const files = p.files.filter(function (f) { return !(f.n === name && f.b === backend); });
+    files.push({ n: name, b: backend, s: size, t: Date.now() });
+    await poolWrite(env, files, p.sha);
+  } catch (e) {}
+}
+function poolTotals(files) {
+  const t = { pages: 0, b2: 0 };
+  for (const f of files) t[f.b] = (t[f.b] || 0) + (f.s || 0);
+  return t;
+}
+async function pagesDeleteFile(env, path) {
+  const g = await ghApi(env, 'GET', '/repos/' + GH_REPO + '/contents/' + path);
+  if (g.status !== 200) return false;
+  const d = await g.json();
+  const del = await ghApi(env, 'DELETE', '/repos/' + GH_REPO + '/contents/' + path, { message: 'pool cleanup ' + path, sha: d.sha });
+  return del.status === 200;
+}
+async function handleCleanup(env, url) {
+  if (url.searchParams.get('k') !== STORE_KEY) return json({ ok: false, error: 'bad key' }, 403);
+  const backend = url.searchParams.get('backend') === 'b2' ? 'b2' : 'pages';
+  const keep = Math.max(0, parseFloat(url.searchParams.get('keepmb') || '0')) * 1048576;
+  const dry = url.searchParams.get('dry') === '1';
+  const p = await poolRead(env);
+  const mine = p.files.filter(function (f) { return f.b === backend; }).sort(function (a, b) { return a.t - b.t; });
+  let total = 0; for (const f of mine) total += f.s || 0;
+  const deleted = [];
+  for (const f of mine) {
+    if (total <= keep) break;
+    if (!dry) {
+      let ok = false;
+      if (backend === 'pages') ok = await pagesDeleteFile(env, f.n);
+      else { const dr = await b2Req(env, 'DELETE', f.n, '', null, EMPTY_SHA); ok = dr.ok || dr.status === 204; }
+      if (!ok) continue;
+    }
+    deleted.push(f); total -= f.s || 0;
+  }
+  if (!dry && deleted.length) {
+    const rest = p.files.filter(function (f) { return deleted.indexOf(f) < 0; });
+    try { await poolWrite(env, rest, p.sha); } catch (e) {}
+    if (backend === 'pages') { try { await ghApi(env, 'POST', '/repos/' + GH_REPO + '/pages/builds'); } catch (e) {} }
+  }
+  return json({ ok: true, backend: backend, dry: dry, deleted: deleted.map(function (f) { return f.n; }), remainingBytes: total });
+}
+
 async function handleStore(env, url) {
   const id = url.searchParams.get('v') || '';
   if (!/^[\w-]{11}$/.test(id)) return json({ ok: false, error: 'bad video id' }, 400);
@@ -424,6 +719,8 @@ async function handleStore(env, url) {
     for (let attempt = 0; attempt < 4 && !buf; attempt++) {
       const m = kind === 'audio' ? await mintAny(id) : await mintVideo(id, hd);
       if (!m) { lastErr = lastMintErrors.length ? lastMintErrors.join('; ') : 'mint failed'; continue; }
+      const knownLen = parseInt(m.format.contentLength || '0', 10);
+      if (knownLen > STORE_MAX) return json({ ok: false, error: 'ဖိုင် ကြီးလွန်းပါတယ် (' + Math.round(knownLen / 1048576) + ' MB > 40 MB)' }, 413);
       const up = await fetch(m.format.url, { headers: { 'User-Agent': m.client.ua } });
       if (!up.ok) { lastErr = 'media HTTP ' + up.status; continue; }
       const b = await up.arrayBuffer();
@@ -432,15 +729,28 @@ async function handleStore(env, url) {
       buf = b;
     }
     if (!buf) return json({ ok: false, error: 'YouTube ကနေ ဒီ video ကို ယူမရပါ [' + lastErr + ']' }, 502);
-    const put = await ghApi(env, 'PUT', '/repos/' + GH_REPO + '/contents/' + name, {
-      message: 'store ' + id, content: bytesToB64(buf),
-    });
-    if (put.status !== 200 && put.status !== 201) {
+    let pagesFull = false;
+    try { const p0 = await poolRead(env); pagesFull = poolTotals(p0.files).pages >= 950 * 1048576; } catch (e) {}
+    if (!pagesFull) {
+      const put = await ghApi(env, 'PUT', '/repos/' + GH_REPO + '/contents/' + name, {
+        message: 'store ' + id, content: bytesToB64(buf),
+      });
+      if (put.status === 200 || put.status === 201) {
+        await poolAdd(env, name, 'pages', buf.byteLength);
+        try { await ghApi(env, 'POST', '/repos/' + GH_REPO + '/pages/builds'); } catch (e) {}
+        return json({ ok: true, url: fileUrl, cached: false, bytes: buf.byteLength });
+      }
       const re = await ghApi(env, 'GET', '/repos/' + GH_REPO + '/contents/' + name);
-      if (re.status !== 200) return json({ ok: false, error: 'github upload HTTP ' + put.status }, 502);
+      if (re.status === 200) return json({ ok: true, url: fileUrl, cached: true });
     }
-    try { await ghApi(env, 'POST', '/repos/' + GH_REPO + '/pages/builds'); } catch (e) {}
-    return json({ ok: true, url: fileUrl, cached: false, bytes: buf.byteLength });
+    if (env.B2_KEY_ID && env.B2_APP_KEY) {
+      const key = name.split('/').pop();
+      if (await b2PutBuffer(env, key, buf, kind === 'audio' ? 'audio/mp4' : 'video/mp4')) {
+        await poolAdd(env, key, 'b2', buf.byteLength);
+        return json({ ok: true, url: b2PlayUrl(url.origin, key), cached: false, bytes: buf.byteLength, backend: 'b2' });
+      }
+    }
+    return json({ ok: false, error: 'github upload failed' }, 502);
   } catch (e) {
     return json({ ok: false, error: String(e) }, 500);
   }
@@ -617,6 +927,15 @@ export default {
       if (url.pathname === '/store') {
         return await handleStore(env, url);
       }
+      if (url.pathname === '/storebig') {
+        return await handleStoreBigB2(env, url);
+      }
+      if (url.pathname === '/b2play') {
+        return await handleB2Play(env, url);
+      }
+      if (url.pathname === '/cleanup') {
+        return await handleCleanup(env, url);
+      }
       if (url.pathname === '/suggest') {
         const q = (url.searchParams.get('q') || '').trim();
         if (!q) return json({ ok: true, suggestions: [] });
@@ -627,7 +946,7 @@ export default {
         if (!q) return json({ ok: false, error: 'empty query' }, 400);
         return await handleSearch(q);
       }
-      return new Response('Parami Mp3 Pro Worker OK v8', { headers: Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, CORS) });
+      return new Response('Parami Mp3 Pro Worker OK v10.3', { headers: Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, CORS) });
     } catch (e) {
       return json({ ok: false, error: String(e && e.message ? e.message : e) }, 500);
     }
