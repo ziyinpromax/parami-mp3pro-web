@@ -103,6 +103,8 @@
     <div class="qrow">
       <span class="chip on" id="chipSd">360p</span>
       <span class="chip" id="chipHd">720p</span>
+      <span class="chip" id="btnPrev">⏮ အရင်</span>
+      <span class="chip" id="btnNext">⏭ နောက်</span>
       <a class="mp3link" href="./">🎵 အသံသာ → Parami Mp3 Pro</a>
     </div>
     <div class="status" id="wstatus" style="min-height:0;margin:6px 0"></div>
@@ -118,6 +120,7 @@ function workerBase(){ try{ return (localStorage.getItem('mp3pro_worker')||DEFAU
 var W = workerBase();
 var $ = function(id){ return document.getElementById(id); };
 var curId = '', curHd = false, curCat = 'home', storeRetries = 0, curDur = 0, reStoreTried = false;
+var queue = [], queueIdx = -1, lastGrid = [], relItems = [];
 var STORE_K = 'pm-store-7';
 function showWStatus(t){ $('wstatus').textContent = t || ''; }
 /* Playback source = a file stored on THIS site (GitHub Pages). The Worker
@@ -176,7 +179,7 @@ function showStatus(t){ var e=$('status'); e.textContent=t||''; e.style.display=
 function showMsg(t){ var e=$('msg'); e.textContent=t||''; e.style.display=t?'block':'none'; }
 function showWMsg(t){ var e=$('wmsg'); e.textContent=t||''; e.style.display=t?'block':'none'; }
 
-function cardEl(it){
+function cardEl(it, idx){
   var div = document.createElement('div');
   div.className = 'card';
   var th = document.createElement('div'); th.className = 'thumb';
@@ -188,10 +191,10 @@ function cardEl(it){
   var t = document.createElement('div'); t.className = 't'; t.textContent = it.title || '';
   var a = document.createElement('div'); a.className = 'a'; a.textContent = it.author || '';
   div.appendChild(th); div.appendChild(t); div.appendChild(a);
-  div.onclick = function(){ openWatch(it.id, it.title, it.author, false, it.duration); };
+  div.onclick = function(){ queue = lastGrid.slice(); queueIdx = (typeof idx === 'number' ? idx : -1); openWatch(it.id, it.title, it.author, false, it.duration); };
   return div;
 }
-function rowEl(it){
+function rowEl(it, idx){
   var div = document.createElement('div');
   div.className = 'item';
   var img = document.createElement('img');
@@ -203,12 +206,13 @@ function rowEl(it){
   a.textContent = (it.author || '') + (it.duration ? ' • ' + fmtDur(it.duration) : '');
   mid.appendChild(t); mid.appendChild(a);
   div.appendChild(img); div.appendChild(mid);
-  div.onclick = function(){ openWatch(it.id, it.title, it.author, false, it.duration); };
+  div.onclick = function(){ queue = relItems.slice(); queueIdx = (typeof idx === 'number' ? idx : -1); openWatch(it.id, it.title, it.author, false, it.duration); };
   return div;
 }
 function renderGrid(items){
+  lastGrid = items || [];
   var g = $('grid'); g.innerHTML = '';
-  items.forEach(function(it){ g.appendChild(cardEl(it)); });
+  lastGrid.forEach(function(it, i){ g.appendChild(cardEl(it, i)); });
 }
 
 function loadFeed(cat){
@@ -263,6 +267,7 @@ function openWatch(id, title, author, keepHd, dur){
   $('ptitle').textContent = title || '';
   $('pauthor').textContent = author || '';
   $('related').innerHTML = '';
+  updNav();
   prepareAndPlay(id);
   window.scrollTo(0, 0);
   if(!title){
@@ -273,7 +278,8 @@ function openWatch(id, title, author, keepHd, dur){
   fetch(W + '/next?v=' + encodeURIComponent(id)).then(function(r){ return r.json(); }).then(function(d){
     if(!d || !d.ok || curId !== id) return;
     var box = $('related'); box.innerHTML = '';
-    (d.results || []).forEach(function(it){ box.appendChild(rowEl(it)); });
+    relItems = d.results || [];
+    relItems.forEach(function(it, i){ box.appendChild(rowEl(it, i)); });
   }).catch(function(){});
 }
 
@@ -291,6 +297,20 @@ document.querySelectorAll('#chips .chip').forEach(function(c){
   c.onclick = function(){ loadFeed(c.getAttribute('data-cat')); };
 });
 $('backBtn').onclick = function(){ showView('home'); };
+function updNav(){
+  var p = $('btnPrev'), n = $('btnNext');
+  if(p){ var dis = !(queueIdx > 0); p.style.opacity = dis ? '0.35' : '1'; p.style.pointerEvents = dis ? 'none' : 'auto'; }
+  if(n){ var dis2 = !(queueIdx >= 0 && queueIdx < queue.length - 1); n.style.opacity = dis2 ? '0.35' : '1'; n.style.pointerEvents = dis2 ? 'none' : 'auto'; }
+}
+function playQueue(i){
+  if(i < 0 || i >= queue.length) return;
+  queueIdx = i;
+  var it = queue[i];
+  openWatch(it.id, it.title, it.author, true, it.duration);
+}
+$('btnPrev').onclick = function(){ playQueue(queueIdx - 1); };
+$('btnNext').onclick = function(){ playQueue(queueIdx + 1); };
+$('vid').addEventListener('ended', function(){ if(queueIdx >= 0 && queueIdx < queue.length - 1) playQueue(queueIdx + 1); });
 $('chipSd').onclick = function(){ if(curHd){ curHd = false; $('chipSd').className='chip on'; $('chipHd').className='chip'; if(curId) openWatch(curId, $('ptitle').textContent, $('pauthor').textContent, true, curDur); } };
 $('chipHd').onclick = function(){ if(!curHd){ curHd = true; $('chipHd').className='chip on'; $('chipSd').className='chip'; if(curId) openWatch(curId, $('ptitle').textContent, $('pauthor').textContent, true, curDur); } };
 $('vid').addEventListener('error', function(){
