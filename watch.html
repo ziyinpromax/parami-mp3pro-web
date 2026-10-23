@@ -45,6 +45,7 @@
   .thumb { position: relative; border-radius: 14px; overflow: hidden; background: #111; }
   .thumb img { width: 100%; aspect-ratio: 16/9; object-fit: cover; display: block; }
   .dur { position: absolute; right: 8px; bottom: 8px; background: rgba(0,0,0,.8); color: #fff;
+  .botno { position: absolute; left: 8px; bottom: 8px; background: rgba(0,0,0,.8); color: #fda4af; font-size: 11px; padding: 2px 7px; border-radius: 6px; border: 1px solid #f43f5e44; }
     font-size: 12px; padding: 2px 7px; border-radius: 6px; }
   .card .t { font-size: 15px; font-weight: 600; line-height: 1.4; margin-top: 8px;
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
@@ -354,7 +355,16 @@ function updSelBar(){
   if(selMode){ b.style.display = 'flex'; if(!botRunning) $('selInfo').textContent = 'ရွေးထားတာ ' + selCount() + ' ပုဒ်'; }
   else b.style.display = 'none';
 }
+/* The bot route serves files back from Telegram, which caps playback
+   at ~19.5 MB — and live/unknown-length streams cannot be downloaded
+   at all. Long items (>=10 min) and no-duration items are therefore
+   NOT bot-selectable (they still play normally in Tube via B2). */
+function botSelectable(it){
+  var d = (it && it.duration) || 0;
+  return d > 0 && d < 600;
+}
 function toggleSel(it, el){
+  if(!botSelectable(it) && !selMap[it.id]) return;
   if(selMap[it.id]){ delete selMap[it.id]; el.classList.remove('sel'); }
   else {
     if(selCount() >= 30){ showMsg('အများဆုံး 30 ပုဒ် ပဲ ရွေးလို့ ရပါတယ်'); return; }
@@ -374,6 +384,7 @@ function bindSel(el, it, openFn){
   el.addEventListener('contextmenu', function(e){ e.preventDefault(); });
   el.onclick = function(){
     var held = Date.now() - downAt > 550;
+    if((held || selMode) && !botSelectable(it)) return;
     if(held && !selMode){
       selMode = true;
       try{ if(navigator.vibrate) navigator.vibrate(30); }catch(e){}
@@ -394,6 +405,7 @@ function cardEl(it, idx){
   img.loading = 'lazy'; img.alt = '';
   th.appendChild(img);
   if(it.duration){ var d = document.createElement('span'); d.className = 'dur'; d.textContent = fmtDur(it.duration); th.appendChild(d); }
+  if(!botSelectable(it)){ var bn = document.createElement('span'); bn.className = 'botno'; bn.textContent = '🤖 Bot မရ'; th.appendChild(bn); }
   var t = document.createElement('div'); t.className = 't'; t.textContent = it.title || '';
   var a = document.createElement('div'); a.className = 'a'; a.textContent = it.author || '';
   div.appendChild(th); div.appendChild(t); div.appendChild(a);
@@ -412,6 +424,7 @@ function rowEl(it, idx){
   a.textContent = (it.author || '') + (it.duration ? ' • ' + fmtDur(it.duration) : '');
   mid.appendChild(t); mid.appendChild(a);
   div.appendChild(img); div.appendChild(mid);
+  if(!botSelectable(it)){ var bn2 = document.createElement('span'); bn2.textContent = '🤖 Bot မရ'; bn2.style.cssText = 'align-self:center;flex:none;color:#fda4af;font-size:11px;border:1px solid #f43f5e44;background:#f43f5e14;padding:3px 8px;border-radius:6px'; div.appendChild(bn2); }
   bindSel(div, it, function(){ queue = relItems.slice(); queueIdx = (typeof idx === 'number' ? idx : -1); openWatch(it.id, it.title, it.author, false, it.duration); });
   return div;
 }
@@ -683,7 +696,7 @@ $('q').addEventListener('blur', function(){ setTimeout(hideSuggest, 250); });
 $('btnSelX').onclick = function(){ if(!botRunning) clearSel(); };
 $('btnToBot').onclick = async function(){
   if(botRunning) return;
-  var items = Object.keys(selMap).map(function(k){ return selMap[k]; });
+  var items = Object.keys(selMap).map(function(k){ return selMap[k]; }).filter(function(it){ return botSelectable(it); });
   if(!items.length) return;
   botRunning = true;
   var total = items.length * 2, done = 0, okN = 0;
