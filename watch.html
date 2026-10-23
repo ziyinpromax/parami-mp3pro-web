@@ -92,6 +92,11 @@
 <div class="wrap">
   <!-- HOME / SEARCH view -->
   <div id="viewHome">
+    <div id="npBar" style="display:none;align-items:center;gap:10px;margin:10px 0;padding:10px 12px;border-radius:14px;background:#22d3ee1f;border:1px solid #2dd4ee55;cursor:pointer">
+      <div id="npTitle" style="flex:1;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">🎧 Background play</div>
+      <span id="npToggle" style="cursor:pointer;font-size:18px;padding:2px 8px">⏸</span>
+      <span id="npStop" style="cursor:pointer;font-size:16px;padding:2px 8px">✖</span>
+    </div>
     <div class="status" id="status"></div>
     <div class="msg" id="msg"></div>
     <div class="grid" id="grid"></div>
@@ -131,6 +136,7 @@ var queue = [], queueIdx = -1, lastGrid = [], relItems = [];
 var bgMode = false, pendingSeek = 0, audioDeadId = '';
 var autoClock = null, autoTries = 0;
 var bgVia = '';
+var audioUrlCache = {}, audioFetchBusy = {};
 var STORE_K = 'pm-store-7';
 var savedList = [];
 try { savedList = JSON.parse(localStorage.getItem('tube_saved') || '[]'); } catch(e){ savedList = []; }
@@ -225,7 +231,52 @@ function primeAud(){
     if(pr && pr.then) pr.then(function(){ try{ a.pause(); a.removeAttribute('src'); a.load(); }catch(e){} }, function(){});
   } catch(e){}
 }
+function useStoredAudio(id, url, seekTo){
+  var a = $('aud');
+  a.src = url;
+  bgVia = 'audio';
+  setMediaSession(id);
+  var sk = seekTo;
+  if(sk < 0){ sk = 0; try{ sk = $('vid').currentTime || 0; }catch(e){} }
+  a.addEventListener('loadedmetadata', function h(){
+    a.removeEventListener('loadedmetadata', h);
+    if(sk > 0){ try{ a.currentTime = Math.min(sk, (a.duration || sk) - 1); }catch(e){} }
+  });
+  var ppr = null;
+  try{ ppr = a.play(); }catch(e){}
+  if(ppr && ppr.then){
+    ppr.then(function(){ showWStatus('🎧 Background play — screen ပိတ်ထားလို့ ရပါတယ်'); try{ $('vid').pause(); }catch(e){} prefetchNextAudio(); },
+             function(){ var ae = $('aud'); ae.style.display = 'block'; ae.setAttribute('controls', ''); showWStatus('🎧 အသံ ရပြီ — အောက်က အသံ player မှာ ▶ နှိပ်ပါ (video လည်း ဆက် လာနေပါတယ်)'); });
+  } else { showWStatus('🎧 Background play — screen ပိတ်ထားလို့ ရပါတယ်'); try{ $('vid').pause(); }catch(e){} prefetchNextAudio(); }
+}
+function nextQueueItem(){
+  if(queueIdx >= 0 && queueIdx < queue.length - 1) return queue[queueIdx + 1];
+  if(relItems && relItems.length) return relItems[0];
+  return null;
+}
+/* while the current song plays in Background mode, quietly store the NEXT
+   song's audio too — so 'ended' can switch instantly instead of waiting
+   10-40s for a store (by then a hidden page's play() may be refused) */
+function prefetchNextAudio(){
+  if(!bgMode) return;
+  var nx = nextQueueItem();
+  if(!nx || !nx.id || nx.id === curId || audioUrlCache[nx.id] || audioFetchBusy[nx.id]) return;
+  audioFetchBusy[nx.id] = true;
+  var big = (nx.duration || 0) >= 600;
+  fetch(W + (big ? '/storebig' : '/store') + '?v=' + encodeURIComponent(nx.id) + '&kind=audio&k=' + STORE_K)
+    .then(function(r){ return r.json(); })
+    .then(function(d){ audioFetchBusy[nx.id] = false; if(d && d.ok && d.url) audioUrlCache[nx.id] = d.url; })
+    .catch(function(){ audioFetchBusy[nx.id] = false; });
+}
+/* auto-advance: next in the tapped list, else fall back to the related
+   rail (YouTube-style autoplay) — covers songs opened from a link or a
+   suggestion row, which never set a queue */
+function advanceNext(){
+  if(queueIdx >= 0 && queueIdx < queue.length - 1){ playQueue(queueIdx + 1); return; }
+  if(relItems && relItems.length){ queue = relItems.slice(); queueIdx = -1; playQueue(0); }
+}
 function prepareAudio(id, seekTo){
+  if(audioUrlCache[id]){ useStoredAudio(id, audioUrlCache[id], seekTo); return; }
   var tries = 0;
   showWStatus('🎧 အသံ ပြင်ဆင်နေပါတယ်...');
   (function attempt(){
@@ -235,22 +286,8 @@ function prepareAudio(id, seekTo){
       .then(function(d){
         if(curId !== id) return;
         if(d && d.ok && d.url){
-          var a = $('aud');
-          a.src = d.url;
-          bgVia = 'audio';
-          setMediaSession(id);
-          var sk = seekTo;
-          if(sk < 0){ sk = 0; try{ sk = $('vid').currentTime || 0; }catch(e){} }
-          a.addEventListener('loadedmetadata', function h(){
-            a.removeEventListener('loadedmetadata', h);
-            if(sk > 0){ try{ a.currentTime = Math.min(sk, (a.duration || sk) - 1); }catch(e){} }
-          });
-          var ppr = null;
-          try{ ppr = a.play(); }catch(e){}
-          if(ppr && ppr.then){
-            ppr.then(function(){ showWStatus('🎧 Background play — screen ပိတ်ထားလို့ ရပါတယ်'); try{ $('vid').pause(); }catch(e){} },
-                     function(){ var ae = $('aud'); ae.style.display = 'block'; ae.setAttribute('controls', ''); showWStatus('🎧 အသံ ရပြီ — အောက်က အသံ player မှာ ▶ နှိပ်ပါ (video လည်း ဆက် လာနေပါတယ်)'); });
-          } else { showWStatus('🎧 Background play — screen ပိတ်ထားလို့ ရပါတယ်'); try{ $('vid').pause(); }catch(e){} }
+          audioUrlCache[id] = d.url;
+          useStoredAudio(id, d.url, seekTo);
           return;
         }
         if(tries < 3){ setTimeout(function(){ if(curId === id) attempt(); }, 4000); return; }
@@ -368,7 +405,31 @@ function showView(which){
   $('viewHome').style.display = which === 'home' ? 'block' : 'none';
   $('viewWatch').style.display = which === 'watch' ? 'block' : 'none';
   $('chips').style.display = which === 'home' ? 'flex' : 'none';
-  if(which === 'home'){ var v = $('vid'); try{ v.pause(); v.removeAttribute('src'); v.load(); }catch(e){} var a2 = $('aud'); try{ a2.pause(); a2.removeAttribute('src'); a2.load(); a2.style.display = 'none'; a2.removeAttribute('controls'); }catch(e){} }
+  var np = $('npBar');
+  if(which === 'watch'){ if(np) np.style.display = 'none'; return; }
+  /* going home in Background mode: the music keeps playing — stop only the
+     picture (video element); the audio element is left untouched and the
+     mini bar on Home controls it */
+  if(bgMode && bgVia === 'audio'){
+    var vv = $('vid'); try{ vv.pause(); vv.removeAttribute('src'); vv.load(); }catch(e){}
+    if(np){ $('npTitle').textContent = '🎧 ' + ($('ptitle').textContent || 'Background play'); np.style.display = 'flex'; updNpBtn(); }
+    return;
+  }
+  if(bgMode && bgVia === 'video'){
+    if(np){ $('npTitle').textContent = '🎧 ' + ($('ptitle').textContent || 'Background play'); np.style.display = 'flex'; updNpBtn(); }
+    return;
+  }
+  if(np) np.style.display = 'none';
+  var v = $('vid'); try{ v.pause(); v.removeAttribute('src'); v.load(); }catch(e){}
+  var a2 = $('aud'); try{ a2.pause(); a2.removeAttribute('src'); a2.load(); a2.style.display = 'none'; a2.removeAttribute('controls'); }catch(e){}
+}
+function updNpBtn(){ var b = $('npToggle'); if(!b) return; var a = (bgVia === 'audio') ? $('aud') : $('vid'); b.textContent = (a && !a.paused) ? '⏸' : '▶'; }
+function stopBgCompletely(){
+  bgMode = false; bgVia = '';
+  try{ $('btnBg').className = 'chip'; }catch(e){}
+  var v = $('vid'); try{ v.pause(); v.removeAttribute('src'); v.load(); }catch(e){}
+  var a = $('aud'); try{ a.pause(); a.removeAttribute('src'); a.load(); a.style.display = 'none'; a.removeAttribute('controls'); }catch(e){}
+  var np = $('npBar'); if(np) np.style.display = 'none';
 }
 
 function openWatch(id, title, author, keepHd, dur){
@@ -403,6 +464,7 @@ function openWatch(id, title, author, keepHd, dur){
     var box = $('related'); box.innerHTML = '';
     relItems = d.results || [];
     relItems.forEach(function(it, i){ box.appendChild(rowEl(it, i)); });
+    if(bgMode) prefetchNextAudio();
   }).catch(function(){});
 }
 
@@ -420,6 +482,13 @@ document.querySelectorAll('#chips .chip').forEach(function(c){
   c.onclick = function(){ loadFeed(c.getAttribute('data-cat')); };
 });
 $('backBtn').onclick = function(){ showView('home'); };
+$('npBar').onclick = function(){ showView('watch'); };
+$('npToggle').onclick = function(ev){ ev.stopPropagation(); var a = (bgVia === 'audio') ? $('aud') : $('vid'); if(!a) return; if(a.paused){ a.play().catch(function(){}); } else { a.pause(); } setTimeout(updNpBtn, 80); };
+$('npStop').onclick = function(ev){ ev.stopPropagation(); stopBgCompletely(); };
+$('aud').addEventListener('play', updNpBtn);
+$('aud').addEventListener('pause', updNpBtn);
+$('vid').addEventListener('play', updNpBtn);
+$('vid').addEventListener('pause', updNpBtn);
 function updNav(){
   var p = $('btnPrev'), n = $('btnNext');
   if(p){ var dis = !(queueIdx > 0); p.style.opacity = dis ? '0.35' : '1'; p.style.pointerEvents = dis ? 'none' : 'auto'; }
@@ -432,7 +501,7 @@ function playQueue(i){
   openWatch(it.id, it.title, it.author, true, it.duration);
 }
 $('btnPrev').onclick = function(){ playQueue(queueIdx - 1); };
-$('aud').addEventListener('ended', function(){ if(queueIdx >= 0 && queueIdx < queue.length - 1) playQueue(queueIdx + 1); });
+$('aud').addEventListener('ended', function(){ advanceNext(); });
 $('aud').addEventListener('error', function(){
   if(!bgMode || bgVia !== 'audio' || !curId || audioDeadId === curId) return;
   audioDeadId = curId;
@@ -491,7 +560,7 @@ function showSaved(){
 }
 $('chipSaved').onclick = showSaved;
 $('btnNext').onclick = function(){ playQueue(queueIdx + 1); };
-$('vid').addEventListener('ended', function(){ if(queueIdx >= 0 && queueIdx < queue.length - 1) playQueue(queueIdx + 1); });
+$('vid').addEventListener('ended', function(){ advanceNext(); });
 $('chipSd').onclick = function(){ if(curHd){ curHd = false; $('chipSd').className='chip on'; $('chipHd').className='chip'; if(curId) openWatch(curId, $('ptitle').textContent, $('pauthor').textContent, true, curDur); } };
 $('chipHd').onclick = function(){ if(!curHd){ curHd = true; $('chipHd').className='chip on'; $('chipSd').className='chip'; if(curId) openWatch(curId, $('ptitle').textContent, $('pauthor').textContent, true, curDur); } };
 $('vid').addEventListener('error', function(){
