@@ -67,7 +67,10 @@
   .item .t { font-size: 14px; font-weight: 600; line-height: 1.35;
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .item .a { font-size: 12px; color: #aab; margin-top: 4px; }
-.card{position:relative}.card .rm{position:absolute;top:6px;right:6px;background:rgba(0,0,0,.7);color:#fff;border:1px solid rgba(255,255,255,.35);border-radius:50%;width:24px;height:24px;line-height:23px;text-align:center;font-size:12px;cursor:pointer;z-index:3}
+.card{position:relative}
+.card.sel .thumb{outline:3px solid #22d3ee}
+.card.sel .thumb::after{content:'✓';position:absolute;top:6px;left:6px;background:#22d3ee;color:#06121f;border-radius:50%;width:24px;height:24px;line-height:24px;text-align:center;font-weight:800;z-index:4}
+.item.sel{outline:2px solid #22d3ee}.card .rm{position:absolute;top:6px;right:6px;background:rgba(0,0,0,.7);color:#fff;border:1px solid rgba(255,255,255,.35);border-radius:50%;width:24px;height:24px;line-height:23px;text-align:center;font-size:12px;cursor:pointer;z-index:3}
 </style>
 </head>
 <body>
@@ -124,6 +127,12 @@
     <div class="sect">ဆက် ကြည့်ရန်</div>
     <div class="rows" id="related"></div>
   </div>
+</div>
+
+<div id="selBar" style="display:none;position:fixed;left:10px;right:10px;bottom:12px;z-index:60;background:#12122e;border:1px solid #2dd4ee66;border-radius:16px;padding:10px 12px;align-items:center;gap:10px;box-shadow:0 8px 30px rgba(0,0,0,.55)">
+  <div id="selInfo" style="flex:1;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">ရွေးထားတာ 0 ပုဒ်</div>
+  <span class="chip on" id="btnToBot">🤖 To bot</span>
+  <span class="chip" id="btnSelX">✖</span>
 </div>
 
 <script>
@@ -331,6 +340,51 @@ function showStatus(t){ var e=$('status'); e.textContent=t||''; e.style.display=
 function showMsg(t){ var e=$('msg'); e.textContent=t||''; e.style.display=t?'block':'none'; }
 function showWMsg(t){ var e=$('wmsg'); e.textContent=t||''; e.style.display=t?'block':'none'; }
 
+/* --- multi-select + To bot -------------------------------------------
+   Long-press (hold >550ms) a card/row to enter select mode; taps then
+   toggle picks (max 30). 'To bot' walks the picks and stores each song
+   (video + audio) through the BOT route (/store?to=tg): the media is
+   downloaded cloud-side and posted into his Telegram channel — the
+   visitor's phone only sends tiny requests, never the media itself.
+   Long items (>=600s) go through the big-file B2 route instead. */
+var selMode = false, selMap = {}, botRunning = false;
+function selCount(){ return Object.keys(selMap).length; }
+function updSelBar(){
+  var b = $('selBar'); if(!b) return;
+  if(selMode){ b.style.display = 'flex'; if(!botRunning) $('selInfo').textContent = 'ရွေးထားတာ ' + selCount() + ' ပုဒ်'; }
+  else b.style.display = 'none';
+}
+function toggleSel(it, el){
+  if(selMap[it.id]){ delete selMap[it.id]; el.classList.remove('sel'); }
+  else {
+    if(selCount() >= 30){ showMsg('အများဆုံး 30 ပုဒ် ပဲ ရွေးလို့ ရပါတယ်'); return; }
+    selMap[it.id] = it; el.classList.add('sel');
+  }
+  if(selCount() === 0) selMode = false;
+  updSelBar();
+}
+function clearSel(){
+  selMap = {}; selMode = false;
+  document.querySelectorAll('.sel').forEach(function(e){ e.classList.remove('sel'); });
+  updSelBar();
+}
+function bindSel(el, it, openFn){
+  var downAt = 0;
+  el.addEventListener('pointerdown', function(){ downAt = Date.now(); });
+  el.addEventListener('contextmenu', function(e){ e.preventDefault(); });
+  el.onclick = function(){
+    var held = Date.now() - downAt > 550;
+    if(held && !selMode){
+      selMode = true;
+      try{ if(navigator.vibrate) navigator.vibrate(30); }catch(e){}
+      toggleSel(it, el);
+      return;
+    }
+    if(selMode){ toggleSel(it, el); return; }
+    openFn();
+  };
+}
+
 function cardEl(it, idx){
   var div = document.createElement('div');
   div.className = 'card';
@@ -343,7 +397,7 @@ function cardEl(it, idx){
   var t = document.createElement('div'); t.className = 't'; t.textContent = it.title || '';
   var a = document.createElement('div'); a.className = 'a'; a.textContent = it.author || '';
   div.appendChild(th); div.appendChild(t); div.appendChild(a);
-  div.onclick = function(){ queue = lastGrid.slice(); queueIdx = (typeof idx === 'number' ? idx : -1); openWatch(it.id, it.title, it.author, false, it.duration); };
+  bindSel(div, it, function(){ queue = lastGrid.slice(); queueIdx = (typeof idx === 'number' ? idx : -1); openWatch(it.id, it.title, it.author, false, it.duration); });
   return div;
 }
 function rowEl(it, idx){
@@ -358,7 +412,7 @@ function rowEl(it, idx){
   a.textContent = (it.author || '') + (it.duration ? ' • ' + fmtDur(it.duration) : '');
   mid.appendChild(t); mid.appendChild(a);
   div.appendChild(img); div.appendChild(mid);
-  div.onclick = function(){ queue = relItems.slice(); queueIdx = (typeof idx === 'number' ? idx : -1); openWatch(it.id, it.title, it.author, false, it.duration); };
+  bindSel(div, it, function(){ queue = relItems.slice(); queueIdx = (typeof idx === 'number' ? idx : -1); openWatch(it.id, it.title, it.author, false, it.duration); });
   return div;
 }
 function renderGrid(items){
@@ -625,6 +679,38 @@ $('q').addEventListener('input', function(){
   }, 280);
 });
 $('q').addEventListener('blur', function(){ setTimeout(hideSuggest, 250); });
+
+$('btnSelX').onclick = function(){ if(!botRunning) clearSel(); };
+$('btnToBot').onclick = async function(){
+  if(botRunning) return;
+  var items = Object.keys(selMap).map(function(k){ return selMap[k]; });
+  if(!items.length) return;
+  botRunning = true;
+  var total = items.length * 2, done = 0, okN = 0;
+  $('btnToBot').textContent = '⏳ 0/' + total;
+  for(var i = 0; i < items.length; i++){
+    var it = items[i];
+    $('selInfo').textContent = '🤖 ဒေါင်းနေပါတယ် ' + (i + 1) + '/' + items.length + ' — ' + (it.title || it.id);
+    for(var ki = 0; ki < 2; ki++){
+      var kind = ki === 0 ? 'video' : 'audio';
+      try {
+        var u = (it.duration >= 600)
+          ? W + '/storebig?v=' + encodeURIComponent(it.id) + '&kind=' + kind + '&k=' + STORE_K
+          : W + '/store?v=' + encodeURIComponent(it.id) + '&kind=' + kind + '&to=tg&k=' + STORE_K;
+        var d = await fetch(u).then(function(r){ return r.json(); });
+        if(d && d.ok) okN++;
+      } catch(e){}
+      done++;
+      $('btnToBot').textContent = '⏳ ' + done + '/' + total;
+    }
+  }
+  botRunning = false;
+  $('btnToBot').textContent = '🤖 To bot';
+  $('selInfo').textContent = '✅ ပြီးပါပြီ — ' + okN + '/' + total + ' ဖိုင် pool ထဲ ရောက်ပါပြီ';
+  selMap = {}; selMode = false;
+  document.querySelectorAll('.sel').forEach(function(e){ e.classList.remove('sel'); });
+  setTimeout(updSelBar, 5000);
+};
 
 loadFeed('home');
 </script>
