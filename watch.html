@@ -77,7 +77,7 @@
 </head>
 <body>
 <header>
-  <div class="brand">📺 Parami Tube <small class="ver">version 1.1</small> <small>ကြေညာ မပါဘူး • ကိုယ်ပိုင်</small></div>
+  <div class="brand">📺 Parami Tube <small class="ver">version 1.2</small> <small>ကြေညာ မပါဘူး • ကိုယ်ပိုင်</small></div>
   <div class="srow">
     <input type="text" id="q" placeholder="ရှာရန် (သို့) YouTube link ထည့်ပါ" autocomplete="off">
     <button class="go" id="goBtn">ရှာ</button>
@@ -91,6 +91,7 @@
   <span class="chip" data-cat="story">📖 ဇာတ်လမ်း</span>
   <span class="chip" data-cat="news">📰 သတင်း</span>
   <span class="chip" data-cat="funny">😂 ဟာသ</span>
+  <span class="chip" data-cat="lib" id="chipLib">⬇ သိမ်းပြီး</span>
   <span class="chip" data-cat="saved" id="chipSaved">💾 သိမ်းထားတာ</span>
 </div>
 
@@ -149,6 +150,7 @@ var autoClock = null, autoTries = 0;
 var bgVia = '';
 var audioUrlCache = {}, audioFetchBusy = {};
 var videoUrlCache = {}, videoFetchBusy = {}, audFromMp4 = false, mp4AudDeadId = '';
+var suppressAdvance = false;
 var STORE_K = 'pm-store-7';
 var savedList = [];
 try { savedList = JSON.parse(localStorage.getItem('tube_saved') || '[]'); } catch(e){ savedList = []; }
@@ -183,7 +185,7 @@ function prepareAndPlay(id){
     showWStatus(tries === 1
       ? (bigMode ? 'ဖိုင်ကြီး — ပြင်ဆင်ချိန် ၁-၃ မိနစ် ကြာနိုင်ပါတယ်...' : 'ပြင်ဆင်နေပါတယ် — ပထမ အကြိမ် ဆို ခဏ စောင့်ပါ...')
       : 'ပြန် စမ်းနေပါတယ် (' + tries + '/3)...');
-    fetch(W + (bigMode ? '/storebig' : '/store') + '?v=' + encodeURIComponent(id) + '&kind=video&hd=' + (curHd ? 1 : 0) + '&k=' + STORE_K)
+    fetch(W + (bigMode ? '/storebig' : '/store') + '?v=' + encodeURIComponent(id) + '&kind=video&hd=' + (curHd ? 1 : 0) + '&k=' + STORE_K + '&dur=' + (curDur || 0))
       .then(function(r){ return r.json(); })
       .then(function(d){
         if (curId !== id) return;
@@ -278,14 +280,14 @@ function prefetchNextAudio(){
   if(!nx || !nx.id || nx.id === curId || audioUrlCache[nx.id] || audioFetchBusy[nx.id]) return;
   if(!videoUrlCache[nx.id] && !videoFetchBusy[nx.id]){
     videoFetchBusy[nx.id] = true;
-    fetch(W + '/store?v=' + encodeURIComponent(nx.id) + '&kind=video&k=' + STORE_K)
+    fetch(W + '/store?v=' + encodeURIComponent(nx.id) + '&kind=video&k=' + STORE_K + '&dur=' + (nx.duration || 0))
       .then(function(r){ return r.json(); })
       .then(function(d){ videoFetchBusy[nx.id] = false; if(d && d.ok && d.url) videoUrlCache[nx.id] = d.url; })
       .catch(function(){ videoFetchBusy[nx.id] = false; });
   }
   audioFetchBusy[nx.id] = true;
   var big = (nx.duration || 0) >= 600;
-  fetch(W + (big ? '/storebig' : '/store') + '?v=' + encodeURIComponent(nx.id) + '&kind=audio&k=' + STORE_K)
+  fetch(W + (big ? '/storebig' : '/store') + '?v=' + encodeURIComponent(nx.id) + '&kind=audio&k=' + STORE_K + '&dur=' + (nx.duration || 0))
     .then(function(r){ return r.json(); })
     .then(function(d){ audioFetchBusy[nx.id] = false; if(d && d.ok && d.url) audioUrlCache[nx.id] = d.url; })
     .catch(function(){ audioFetchBusy[nx.id] = false; });
@@ -294,6 +296,7 @@ function prefetchNextAudio(){
    rail (YouTube-style autoplay) — covers songs opened from a link or a
    suggestion row, which never set a queue */
 function advanceNext(){
+  if(suppressAdvance) return;
   if(queueIdx >= 0 && queueIdx < queue.length - 1){ playQueue(queueIdx + 1); return; }
   if(relItems && relItems.length){ queue = relItems.slice(); queueIdx = -1; playQueue(0); }
 }
@@ -306,7 +309,7 @@ function prepareAudio(id, seekTo){
      store) gives background its file with NO second download; only
      when the video route fails do we fetch the audio-only file. */
   showWStatus('🎧 ပြင်ဆင်နေပါတယ်...');
-  fetch(W + '/store?v=' + encodeURIComponent(id) + '&kind=video&hd=' + (curHd ? 1 : 0) + '&k=' + STORE_K)
+  fetch(W + '/store?v=' + encodeURIComponent(id) + '&kind=video&hd=' + (curHd ? 1 : 0) + '&k=' + STORE_K + '&dur=' + (curDur || 0))
     .then(function(r){ return r.json(); })
     .then(function(d){
       if(curId !== id) return;
@@ -320,7 +323,7 @@ function audioStoreFlow(id, seekTo){
   showWStatus('🎧 အသံ ပြင်ဆင်နေပါတယ်...');
   (function attempt(){
     tries++;
-    fetch(W + (curDur >= 600 ? '/storebig' : '/store') + '?v=' + encodeURIComponent(id) + '&kind=audio&k=' + STORE_K)
+    fetch(W + (curDur >= 600 ? '/storebig' : '/store') + '?v=' + encodeURIComponent(id) + '&kind=audio&k=' + STORE_K + '&dur=' + (curDur || 0))
       .then(function(r){ return r.json(); })
       .then(function(d){
         if(curId !== id) return;
@@ -476,6 +479,7 @@ function renderGrid(items){
 }
 
 function loadFeed(cat){
+  libViewActive = false;
   curCat = cat;
   var chips = document.querySelectorAll('#chips .chip');
   chips.forEach(function(c){ c.className = 'chip' + (c.getAttribute('data-cat') === cat ? ' on' : ''); });
@@ -497,6 +501,7 @@ function loadFeed(cat){
 }
 
 function doSearch(q){
+  libViewActive = false;
   var chips = document.querySelectorAll('#chips .chip');
   chips.forEach(function(c){ c.className = 'chip'; });
   showView('home');
@@ -542,7 +547,7 @@ function stopBgCompletely(){
 }
 
 function openWatch(id, title, author, keepHd, dur){
-  curId = id; storeRetries = 0; reStoreTried = false; curDur = dur || 0; audioDeadId = ''; pendingSeek = 0; audFromMp4 = false; mp4AudDeadId = '';
+  curId = id; storeRetries = 0; reStoreTried = false; curDur = dur || 0; audioDeadId = ''; pendingSeek = 0; audFromMp4 = false; mp4AudDeadId = ''; suppressAdvance = false; libViewActive = false;
   autoTries = 0; bgVia = '';
   if(autoClock){ clearTimeout(autoClock); autoClock = null; }
   primeAud();
@@ -678,6 +683,7 @@ $('btnSave').onclick = function(){
   persistSaved(); updSaveChip();
 };
 function showSaved(){
+  libViewActive = false;
   showView('home');
   document.querySelectorAll('#chips .chip').forEach(function(c){ c.className = 'chip' + (c.getAttribute('data-cat') === 'saved' ? ' on' : ''); });
   showMsg('');
@@ -694,6 +700,151 @@ function showSaved(){
   });
 }
 $('chipSaved').onclick = showSaved;
+
+/* --- Downloaded library (⬇ သိမ်းပြီး): everything already in the
+   pool — plays instantly for everyone — grouped by type, showing
+   duration + file size, with single-play and sequential play modes.
+   Titles/durations the pool lacks are backfilled from /info once and
+   cached on this device. --- */
+var libItems = [], libCat = 'all', libMode = 'single', libViewActive = false, libMeta = {};
+try { libMeta = JSON.parse(localStorage.getItem('tube_lib_meta') || '{}'); } catch(e){ libMeta = {}; }
+function persistLibMeta(){ try { localStorage.setItem('tube_lib_meta', JSON.stringify(libMeta)); } catch(e){} }
+function fmtSize(b){ if(!b) return ''; if(b >= 1048576) return (b / 1048576).toFixed(1) + ' MB'; return Math.max(1, Math.round(b / 1024)) + ' KB'; }
+function libBackendName(b){ return b === 'tg' ? 'Telegram' : (b === 'b2' ? 'B2' : 'Pages'); }
+function buildLibItems(files){
+  var byId = {};
+  (files || []).forEach(function(f){
+    var n = (f.n || '').split('/').pop();
+    var m = n.match(/^([\w-]{11})(-hd)?\.(mp4|m4a)$/);
+    if(!m) return;
+    var id = m[1], kind = m[3] === 'm4a' ? 'audio' : (m[2] ? 'videoHd' : 'video');
+    var it = byId[id];
+    if(!it){ it = byId[id] = { id: id, title: '', author: '', duration: 0, t: 0, kinds: {} }; }
+    it.kinds[kind] = { backend: f.b, size: f.s || 0 };
+    if((f.t || 0) > it.t) it.t = f.t || 0;
+    if(f.d && !it.duration) it.duration = f.d;
+    var meta = libMeta[id];
+    if(meta){ if(meta.t) it.title = meta.t; if(meta.a) it.author = meta.a; if(meta.d) it.duration = meta.d; }
+  });
+  libItems = Object.keys(byId).map(function(k){ return byId[k]; });
+  libItems.sort(function(a, b){ return b.t - a.t; });
+}
+function libFiltered(){
+  return libItems.filter(function(it){
+    if(libCat === 'video') return !!(it.kinds.video || it.kinds.videoHd);
+    if(libCat === 'audioonly') return !!it.kinds.audio && !it.kinds.video && !it.kinds.videoHd;
+    if(libCat === 'long') return (it.duration || 0) >= 600;
+    return true;
+  });
+}
+function libRowEl(it, idx){
+  var div = document.createElement('div');
+  div.className = 'item';
+  var img = document.createElement('img');
+  img.src = 'https://i.ytimg.com/vi/' + it.id + '/mqdefault.jpg';
+  img.loading = 'lazy'; img.alt = '';
+  var mid = document.createElement('div');
+  var t = document.createElement('div'); t.className = 't'; t.textContent = it.title || ('🎵 ' + it.id);
+  var a = document.createElement('div'); a.className = 'a';
+  var parts = ['⚡ တန်းပွင့်'];
+  if(it.author) parts.push(it.author);
+  if(it.duration) parts.push(fmtDur(it.duration));
+  var bk = '';
+  if(it.kinds.video){ parts.push('🎬 ' + fmtSize(it.kinds.video.size)); bk = it.kinds.video.backend; }
+  if(it.kinds.videoHd){ parts.push('🎬HD ' + fmtSize(it.kinds.videoHd.size)); if(!bk) bk = it.kinds.videoHd.backend; }
+  if(it.kinds.audio){ parts.push('🎧 ' + fmtSize(it.kinds.audio.size)); if(!bk) bk = it.kinds.audio.backend; }
+  if(bk) parts.push(libBackendName(bk));
+  a.textContent = parts.join(' • ');
+  mid.appendChild(t); mid.appendChild(a);
+  div.appendChild(img); div.appendChild(mid);
+  bindSel(div, it, function(){ libPlay(it, idx); });
+  return div;
+}
+function libPlay(it, idx){
+  if(libMode === 'seq'){
+    var list = libFiltered();
+    queue = list.slice(); queueIdx = idx;
+    openWatch(it.id, it.title, it.author, false, it.duration);
+  } else {
+    queue = [it]; queueIdx = 0;
+    openWatch(it.id, it.title, it.author, false, it.duration);
+    suppressAdvance = true;
+  }
+}
+function renderLibrary(){
+  var g = $('grid'); g.innerHTML = '';
+  var head = document.createElement('div');
+  head.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:4px 0 12px';
+  [['all', 'အကုန်'], ['video', '🎬 Video'], ['audioonly', '🎧 အသံသာ'], ['long', '⏱ အရှည်']].forEach(function(c){
+    var s = document.createElement('span');
+    s.className = 'chip' + (libCat === c[0] ? ' on' : '');
+    s.textContent = c[1];
+    s.onclick = function(){ libCat = c[0]; renderLibrary(); };
+    head.appendChild(s);
+  });
+  var sep = document.createElement('span'); sep.style.cssText = 'flex:1'; head.appendChild(sep);
+  [['single', 'တပုဒ်ထဲ'], ['seq', 'အစဉ်လိုက်']].forEach(function(c){
+    var s = document.createElement('span');
+    s.className = 'chip' + (libMode === c[0] ? ' on' : '');
+    s.textContent = c[1];
+    s.onclick = function(){ libMode = c[0]; renderLibrary(); };
+    head.appendChild(s);
+  });
+  g.appendChild(head);
+  var list = libFiltered();
+  if(libMode === 'seq' && list.length){
+    var pb = document.createElement('div');
+    pb.className = 'back';
+    pb.textContent = '▶ အစကစ ဖွင့် (' + list.length + ' ပုဒ်)';
+    pb.onclick = function(){ queue = list.slice(); queueIdx = 0; var f = list[0]; openWatch(f.id, f.title, f.author, false, f.duration); };
+    g.appendChild(pb);
+  }
+  var cnt = document.createElement('div');
+  cnt.style.cssText = 'color:#9fb;font-size:13px;margin:2px 2px 10px';
+  cnt.textContent = 'သိမ်းပြီးသား ' + libItems.length + ' ပုဒ် — ပြထားတာ ' + list.length + ' ပုဒ် (အားလုံး ⚡ တန်းပွင့်)';
+  g.appendChild(cnt);
+  if(!list.length){
+    var e = document.createElement('div');
+    e.className = 'status'; e.style.display = 'block';
+    e.textContent = 'ဒီအမျိုးအစားမှာ မရှိသေးပါ';
+    g.appendChild(e);
+    return;
+  }
+  list.forEach(function(it, i){ g.appendChild(libRowEl(it, i)); });
+}
+async function showLibrary(){
+  libViewActive = true;
+  showView('home');
+  document.querySelectorAll('#chips .chip').forEach(function(c){ c.className = 'chip' + (c.getAttribute('data-cat') === 'lib' ? ' on' : ''); });
+  showMsg(''); showStatus('သိမ်းထားတာတွေ ယူနေပါတယ်...');
+  $('grid').innerHTML = '';
+  try {
+    var d = await fetch(W + '/pool?k=' + STORE_K).then(function(r){ return r.json(); });
+    if(!d || !d.ok){ showStatus(''); showMsg('စာရင်း ယူမရပါ — ခဏနေ ပြန် စမ်းပါ'); return; }
+    buildLibItems(d.files || []);
+    showStatus('');
+    renderLibrary();
+    backfillLibMeta();
+  } catch(e){ showStatus(''); showMsg('စာရင်း ယူမရပါ — အင်တာနက် စစ်ပါ'); }
+}
+function backfillLibMeta(){
+  var missing = libItems.filter(function(it){ return !it.title; }).slice(0, 12);
+  if(!missing.length) return;
+  var i = 0;
+  (function step(){
+    if(i >= missing.length || !libViewActive) return;
+    var batch = missing.slice(i, i + 3); i += 3;
+    Promise.all(batch.map(function(it){
+      return fetch(W + '/info?v=' + encodeURIComponent(it.id)).then(function(r){ return r.json(); }).then(function(d){
+        if(d && d.ok && (d.title || d.duration)){
+          libMeta[it.id] = { t: d.title || '', a: d.author || '', d: d.duration || 0 };
+          it.title = d.title || it.title; it.author = d.author || ''; if(d.duration) it.duration = d.duration;
+        }
+      }).catch(function(){});
+    })).then(function(){ persistLibMeta(); if(libViewActive) renderLibrary(); step(); });
+  })();
+}
+$('chipLib').onclick = showLibrary;
 $('btnNext').onclick = function(){ playQueue(queueIdx + 1); };
 $('vid').addEventListener('ended', function(){ advanceNext(); });
 $('chipSd').onclick = function(){ if(curHd){ curHd = false; $('chipSd').className='chip on'; $('chipHd').className='chip'; if(curId) openWatch(curId, $('ptitle').textContent, $('pauthor').textContent, true, curDur); } };
@@ -775,8 +926,8 @@ $('btnToBot').onclick = async function(){
        second audio download is wasted time and storage */
     try {
       var u = (it.duration >= 600)
-        ? W + '/storebig?v=' + encodeURIComponent(it.id) + '&kind=video&k=' + STORE_K
-        : W + '/store?v=' + encodeURIComponent(it.id) + '&kind=video&to=tg&k=' + STORE_K;
+        ? W + '/storebig?v=' + encodeURIComponent(it.id) + '&kind=video&k=' + STORE_K + '&dur=' + (it.duration || 0)
+        : W + '/store?v=' + encodeURIComponent(it.id) + '&kind=video&to=tg&k=' + STORE_K + '&dur=' + (it.duration || 0);
       var d = await fetch(u).then(function(r){ return r.json(); });
       if(d && d.ok) okN++;
     } catch(e){}
