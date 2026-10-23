@@ -17,6 +17,7 @@
   .brand { font-size: 20px; font-weight: 800; background: linear-gradient(90deg,#22d3ee,#a78bfa);
     -webkit-background-clip: text; background-clip: text; color: transparent; margin-bottom: 8px; }
   .brand small { font-size: 11px; -webkit-text-fill-color: #8fa; opacity: .8; font-weight: 400; }
+  .brand .ver { font-size: 10px; -webkit-text-fill-color: #7ee7fc; opacity: .85; font-weight: 700; letter-spacing: .4px; }
   .srow { display: flex; gap: 8px; }
   input[type=text] { flex: 1; padding: 11px 13px; border-radius: 999px; border: 1px solid #2dd4ee44;
     background: #ffffff10; color: #fff; font-size: 15px; outline: none; min-width: 0; }
@@ -76,7 +77,7 @@
 </head>
 <body>
 <header>
-  <div class="brand">📺 Parami Tube <small>ကြေညာ မပါဘူး • ကိုယ်ပိုင်</small></div>
+  <div class="brand">📺 Parami Tube <small class="ver">version 1.0</small> <small>ကြေညာ မပါဘူး • ကိုယ်ပိုင်</small></div>
   <div class="srow">
     <input type="text" id="q" placeholder="ရှာရန် (သို့) YouTube link ထည့်ပါ" autocomplete="off">
     <button class="go" id="goBtn">ရှာ</button>
@@ -379,18 +380,31 @@ function clearSel(){
   updSelBar();
 }
 function bindSel(el, it, openFn){
-  var downAt = 0;
-  el.addEventListener('pointerdown', function(){ downAt = Date.now(); });
+  /* Long-press must fire from a TIMER on pointerdown: on Android Chrome
+     a long hold swallows the release click, so measuring the hold at
+     click time never engaged selection at all. */
+  var timer = null, lpFired = false, sx = 0, sy = 0;
+  function clearT(){ if(timer){ clearTimeout(timer); timer = null; } }
+  el.addEventListener('pointerdown', function(e){
+    lpFired = false;
+    sx = e.clientX || 0; sy = e.clientY || 0;
+    clearT();
+    timer = setTimeout(function(){
+      timer = null; lpFired = true;
+      if(!botSelectable(it)) return;
+      if(!selMode) selMode = true;
+      try{ if(navigator.vibrate) navigator.vibrate(30); }catch(err){}
+      toggleSel(it, el);
+    }, 550);
+  });
+  el.addEventListener('pointermove', function(e){
+    if(Math.abs((e.clientX || 0) - sx) > 10 || Math.abs((e.clientY || 0) - sy) > 10) clearT();
+  });
+  el.addEventListener('pointerup', clearT);
+  el.addEventListener('pointercancel', clearT);
   el.addEventListener('contextmenu', function(e){ e.preventDefault(); });
   el.onclick = function(){
-    var held = Date.now() - downAt > 550;
-    if((held || selMode) && !botSelectable(it)) return;
-    if(held && !selMode){
-      selMode = true;
-      try{ if(navigator.vibrate) navigator.vibrate(30); }catch(e){}
-      toggleSel(it, el);
-      return;
-    }
+    if(lpFired){ lpFired = false; return; }
     if(selMode){ toggleSel(it, el); return; }
     openFn();
   };
