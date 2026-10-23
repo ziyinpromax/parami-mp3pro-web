@@ -77,7 +77,7 @@
 </head>
 <body>
 <header>
-  <div class="brand">📺 Parami Tube <small class="ver">version 1.0</small> <small>ကြေညာ မပါဘူး • ကိုယ်ပိုင်</small></div>
+  <div class="brand">📺 Parami Tube <small class="ver">version 1.1</small> <small>ကြေညာ မပါဘူး • ကိုယ်ပိုင်</small></div>
   <div class="srow">
     <input type="text" id="q" placeholder="ရှာရန် (သို့) YouTube link ထည့်ပါ" autocomplete="off">
     <button class="go" id="goBtn">ရှာ</button>
@@ -148,6 +148,7 @@ var bgMode = false, pendingSeek = 0, audioDeadId = '';
 var autoClock = null, autoTries = 0;
 var bgVia = '';
 var audioUrlCache = {}, audioFetchBusy = {};
+var videoUrlCache = {}, videoFetchBusy = {}, audFromMp4 = false, mp4AudDeadId = '';
 var STORE_K = 'pm-store-7';
 var savedList = [];
 try { savedList = JSON.parse(localStorage.getItem('tube_saved') || '[]'); } catch(e){ savedList = []; }
@@ -193,6 +194,7 @@ function prepareAndPlay(id){
           try{ $('aud').pause(); }catch(e){}
           bgVia = bgMode ? 'video' : '';
           v.src = d.url;
+          videoUrlCache[id] = d.url;
           setMediaSession(id);
           if(pendingSeek > 0){
             var ps = pendingSeek; pendingSeek = 0;
@@ -243,8 +245,9 @@ function primeAud(){
     if(pr && pr.then) pr.then(function(){ try{ a.pause(); a.removeAttribute('src'); a.load(); }catch(e){} }, function(){});
   } catch(e){}
 }
-function useStoredAudio(id, url, seekTo){
+function useStoredAudio(id, url, seekTo, fromMp4){
   var a = $('aud');
+  audFromMp4 = !!fromMp4;
   a.src = url;
   bgVia = 'audio';
   setMediaSession(id);
@@ -273,6 +276,13 @@ function prefetchNextAudio(){
   if(!bgMode) return;
   var nx = nextQueueItem();
   if(!nx || !nx.id || nx.id === curId || audioUrlCache[nx.id] || audioFetchBusy[nx.id]) return;
+  if(!videoUrlCache[nx.id] && !videoFetchBusy[nx.id]){
+    videoFetchBusy[nx.id] = true;
+    fetch(W + '/store?v=' + encodeURIComponent(nx.id) + '&kind=video&k=' + STORE_K)
+      .then(function(r){ return r.json(); })
+      .then(function(d){ videoFetchBusy[nx.id] = false; if(d && d.ok && d.url) videoUrlCache[nx.id] = d.url; })
+      .catch(function(){ videoFetchBusy[nx.id] = false; });
+  }
   audioFetchBusy[nx.id] = true;
   var big = (nx.duration || 0) >= 600;
   fetch(W + (big ? '/storebig' : '/store') + '?v=' + encodeURIComponent(nx.id) + '&kind=audio&k=' + STORE_K)
@@ -288,7 +298,24 @@ function advanceNext(){
   if(relItems && relItems.length){ queue = relItems.slice(); queueIdx = -1; playQueue(0); }
 }
 function prepareAudio(id, seekTo){
-  if(audioUrlCache[id]){ useStoredAudio(id, audioUrlCache[id], seekTo); return; }
+  if(audioUrlCache[id]){ useStoredAudio(id, audioUrlCache[id], seekTo, false); return; }
+  if(videoUrlCache[id] && mp4AudDeadId !== id){ useStoredAudio(id, videoUrlCache[id], seekTo, true); return; }
+  if(mp4AudDeadId === id){ audioStoreFlow(id, seekTo); return; }
+  /* One file is enough (his point): background can play the mp4's own
+     audio track. Probe the video store first — a hit (or one fresh
+     store) gives background its file with NO second download; only
+     when the video route fails do we fetch the audio-only file. */
+  showWStatus('🎧 ပြင်ဆင်နေပါတယ်...');
+  fetch(W + '/store?v=' + encodeURIComponent(id) + '&kind=video&hd=' + (curHd ? 1 : 0) + '&k=' + STORE_K)
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if(curId !== id) return;
+      if(d && d.ok && d.url){ videoUrlCache[id] = d.url; useStoredAudio(id, d.url, seekTo, true); return; }
+      audioStoreFlow(id, seekTo);
+    })
+    .catch(function(){ if(curId === id) audioStoreFlow(id, seekTo); });
+}
+function audioStoreFlow(id, seekTo){
   var tries = 0;
   showWStatus('🎧 အသံ ပြင်ဆင်နေပါတယ်...');
   (function attempt(){
@@ -299,7 +326,7 @@ function prepareAudio(id, seekTo){
         if(curId !== id) return;
         if(d && d.ok && d.url){
           audioUrlCache[id] = d.url;
-          useStoredAudio(id, d.url, seekTo);
+          useStoredAudio(id, d.url, seekTo, false);
           return;
         }
         if(tries < 3){ setTimeout(function(){ if(curId === id) attempt(); }, 4000); return; }
@@ -515,7 +542,7 @@ function stopBgCompletely(){
 }
 
 function openWatch(id, title, author, keepHd, dur){
-  curId = id; storeRetries = 0; reStoreTried = false; curDur = dur || 0; audioDeadId = ''; pendingSeek = 0;
+  curId = id; storeRetries = 0; reStoreTried = false; curDur = dur || 0; audioDeadId = ''; pendingSeek = 0; audFromMp4 = false; mp4AudDeadId = '';
   autoTries = 0; bgVia = '';
   if(autoClock){ clearTimeout(autoClock); autoClock = null; }
   primeAud();
@@ -585,16 +612,42 @@ function playQueue(i){
 $('btnPrev').onclick = function(){ playQueue(queueIdx - 1); };
 $('aud').addEventListener('ended', function(){ advanceNext(); });
 $('aud').addEventListener('error', function(){
+  if(audFromMp4 && curId){ audFromMp4 = false; mp4AudDeadId = curId; if(bgMode) audioStoreFlow(curId, -1); return; }
   if(!bgMode || bgVia !== 'audio' || !curId || audioDeadId === curId) return;
   audioDeadId = curId;
   showWMsg('🎧 အသံ ဖွင့် မရပါ — video အဖြစ် ပြန် ဖွင့်ပေးထားပါတယ်');
   prepareAndPlay(curId);
 });
+function tryMp4Background(){
+  if(mp4AudDeadId === curId) return false;
+  var v = $('vid');
+  var src = '';
+  try{ src = v.currentSrc || v.src || ''; }catch(e){}
+  if(!src || !v.duration) return false;
+  var t = 0; try{ t = v.currentTime || 0; }catch(e){}
+  var a = $('aud');
+  audFromMp4 = true;
+  a.src = src;
+  bgVia = 'audio';
+  setMediaSession(curId);
+  a.addEventListener('loadedmetadata', function h(){
+    a.removeEventListener('loadedmetadata', h);
+    if(t > 0){ try{ a.currentTime = Math.min(t, (a.duration || t) - 1); }catch(e){} }
+  });
+  var pr = null;
+  try{ pr = a.play(); }catch(e){}
+  if(pr && pr.then){
+    pr.then(function(){ showWStatus('🎧 Background play — mp4 ထဲက အသံကိုပဲ ဖွင့်ထားပါတယ် (ထပ် ဒေါင်း စရာ မလိုပါ)'); try{ v.pause(); }catch(e){} prefetchNextAudio(); },
+           function(){ audFromMp4 = false; mp4AudDeadId = curId; showWStatus('🎧 အသံ ပြင်ဆင်နေပါတယ် — video ဆက် လာနေပါမယ်...'); prepareAudio(curId, -1); });
+  } else { showWStatus('🎧 Background play — mp4 ထဲက အသံကိုပဲ ဖွင့်ထားပါတယ်'); try{ v.pause(); }catch(e){} prefetchNextAudio(); }
+  return true;
+}
 $('btnBg').onclick = function(){
   bgMode = !bgMode;
   $('btnBg').className = 'chip' + (bgMode ? ' on' : '');
   if(!curId) return;
   if(bgMode){
+    if(tryMp4Background()) return;
     showWStatus('🎧 အသံ ပြင်ဆင်နေပါတယ် — video ဆက် လာနေပါမယ်...');
     prepareAudio(curId, -1);
   } else {
@@ -713,27 +766,26 @@ $('btnToBot').onclick = async function(){
   var items = Object.keys(selMap).map(function(k){ return selMap[k]; }).filter(function(it){ return botSelectable(it); });
   if(!items.length) return;
   botRunning = true;
-  var total = items.length * 2, done = 0, okN = 0;
+  var total = items.length, done = 0, okN = 0;
   $('btnToBot').textContent = '⏳ 0/' + total;
   for(var i = 0; i < items.length; i++){
     var it = items[i];
     $('selInfo').textContent = '🤖 ဒေါင်းနေပါတယ် ' + (i + 1) + '/' + items.length + ' — ' + (it.title || it.id);
-    for(var ki = 0; ki < 2; ki++){
-      var kind = ki === 0 ? 'video' : 'audio';
-      try {
-        var u = (it.duration >= 600)
-          ? W + '/storebig?v=' + encodeURIComponent(it.id) + '&kind=' + kind + '&k=' + STORE_K
-          : W + '/store?v=' + encodeURIComponent(it.id) + '&kind=' + kind + '&to=tg&k=' + STORE_K;
-        var d = await fetch(u).then(function(r){ return r.json(); });
-        if(d && d.ok) okN++;
-      } catch(e){}
-      done++;
-      $('btnToBot').textContent = '⏳ ' + done + '/' + total;
-    }
+    /* video only — background play reads the mp4's audio track, so a
+       second audio download is wasted time and storage */
+    try {
+      var u = (it.duration >= 600)
+        ? W + '/storebig?v=' + encodeURIComponent(it.id) + '&kind=video&k=' + STORE_K
+        : W + '/store?v=' + encodeURIComponent(it.id) + '&kind=video&to=tg&k=' + STORE_K;
+      var d = await fetch(u).then(function(r){ return r.json(); });
+      if(d && d.ok) okN++;
+    } catch(e){}
+    done++;
+    $('btnToBot').textContent = '⏳ ' + done + '/' + total;
   }
   botRunning = false;
   $('btnToBot').textContent = '🤖 To bot';
-  $('selInfo').textContent = '✅ ပြီးပါပြီ — ' + okN + '/' + total + ' ဖိုင် pool ထဲ ရောက်ပါပြီ';
+  $('selInfo').textContent = '✅ ပြီးပါပြီ — ' + okN + '/' + total + ' ပုဒ် pool ထဲ ရောက်ပါပြီ';
   selMap = {}; selMode = false;
   document.querySelectorAll('.sel').forEach(function(e){ e.classList.remove('sel'); });
   setTimeout(updSelBar, 5000);
