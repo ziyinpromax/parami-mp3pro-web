@@ -148,6 +148,19 @@ function showWStatus(t){ $('wstatus').textContent = t || ''; }
 /* Playback source = a file stored on THIS site (GitHub Pages). The Worker
    fetches the video once and saves it into the repo; afterwards it plays
    straight from github.io — the host his browser can actually stream. */
+var AUTO_WAITS = [20, 30, 45, 60, 75];
+/* YouTube's bot wall opens and closes in minutes-long windows. Ride it
+   out with escalating waits — each round is a fresh Worker invocation,
+   i.e. a fresh egress dice roll — instead of dying after 2 rounds. */
+function scheduleAutoRetry(id, prefix){
+  if(autoTries >= AUTO_WAITS.length) return false;
+  var wait = AUTO_WAITS[autoTries];
+  autoTries++;
+  showWStatus('');
+  showWMsg(prefix + ' — ' + wait + ' စက္ကန့် နေ အလိုအလျောက် ပြန် စမ်းပါမယ် (' + autoTries + '/' + AUTO_WAITS.length + ')');
+  autoClock = setTimeout(function(){ autoClock = null; if (curId === id && $('viewWatch').style.display !== 'none') prepareAndPlay(id); }, wait * 1000);
+  return true;
+}
 function prepareAndPlay(id){
   showWMsg('');
   if(bgMode && audioDeadId !== id){ prepareAudio(id, 0); return; }
@@ -180,26 +193,14 @@ function prepareAndPlay(id){
         var err = (d && d.error) ? String(d.error) : '';
         if (!bigMode && err.indexOf('ကြီးလွန်း') >= 0){ bigMode = true; tries = 0; attempt(); return; }
         if (tries < 3){ setTimeout(function(){ if (curId === id) attempt(); }, 4000); return; }
-        if (autoTries < 2){
-          autoTries++;
-          showWStatus('');
-          showWMsg('YouTube က အခု ခဏ ပိတ်ထားတယ် — 20 စက္ကန့် နေ အလိုအလျောက် ပြန် စမ်းပါမယ် (' + autoTries + '/2)');
-          autoClock = setTimeout(function(){ autoClock = null; if (curId === id && $('viewWatch').style.display !== 'none') prepareAndPlay(id); }, 20000);
-          return;
-        }
+        if (scheduleAutoRetry(id, 'YouTube က အခု ခဏ ပိတ်ထားတယ်')) return;
         showWStatus('');
         showWMsg(err || 'ဒီ video ကို ပြင် မရပါ — ခဏနေ ပြန် စမ်းပါ');
       })
       .catch(function(){
         if (curId !== id) return;
         if (tries < 3){ setTimeout(function(){ if (curId === id) attempt(); }, 4000); return; }
-        if (autoTries < 2){
-          autoTries++;
-          showWStatus('');
-          showWMsg('အင်တာနက်/YouTube ခဏ ပိတ်နေတယ် — 20 စက္ကန့် နေ အလိုအလျောက် ပြန် စမ်းပါမယ် (' + autoTries + '/2)');
-          autoClock = setTimeout(function(){ autoClock = null; if (curId === id && $('viewWatch').style.display !== 'none') prepareAndPlay(id); }, 20000);
-          return;
-        }
+        if (scheduleAutoRetry(id, 'အင်တာနက်/YouTube ခဏ ပိတ်နေတယ်')) return;
         showWStatus(''); showWMsg('အင်တာနက် စစ်ပြီး ပြန် စမ်းပါ');
       });
   }
